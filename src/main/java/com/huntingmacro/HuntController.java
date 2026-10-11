@@ -10,6 +10,8 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.EntityHitResult;
@@ -234,6 +236,7 @@ public class HuntController {
         avoid.values().removeIf(t -> now - t > AVOID_MS);
         blacklist.values().removeIf(t -> now - t > BLACKLIST_MS);
 
+        if (escapeLava(mc, p, now)) return;
         moving = false;
         switch (phase) {
             case HUNT -> hunt(mc, p, now);
@@ -242,6 +245,81 @@ public class HuntController {
             case RETURN -> returnStep(mc, p, now);
         }
         if (phase == Phase.HUNT || phase == Phase.RETURN) stuckCheck(mc, p, now);
+    }
+
+    // ---- lava ----------------------------------------------------------------------------------------------------
+
+    private long lavaSince;
+    private boolean lavaMsg;
+
+    /**
+     * In lava: drop everything, hold jump (swim up) and walk to the nearest dry, safe standing cell within 6 blocks.
+     * Gives up (stops the macro) after 15 s. Afterwards the old plan is thrown away and re-made; the planner
+     * already keeps away from lava.
+     */
+    private boolean escapeLava(Minecraft mc, LocalPlayer p, long now) {
+        if (!p.isInLava()) {
+            if (lavaSince != 0) {
+                lavaSince = 0;
+                lavaMsg = false;
+                leg = null;
+                legCursor = null;
+                recoverTicks = 0;
+                wdCursor = null;
+                planDirty = true;
+                lastPlanRequest = 0;
+                releaseMovement(mc);
+            }
+            return false;
+        }
+        if (lavaSince == 0) lavaSince = now;
+        if (!lavaMsg) {
+            Chat.msg("In lava - getting out.");
+            lavaMsg = true;
+        }
+        if (now - lavaSince > 15_000) {
+            Chat.msg("Stuck in lava for 15 s - stopping.");
+            stop(mc);
+            return true;
+        }
+        mc.options.keyAttack.setDown(false);
+        BlockPos me = p.blockPosition(), best = null;
+        double bd = Double.MAX_VALUE;
+        for (int dx = -6; dx <= 6; dx++)
+            for (int dz = -6; dz <= 6; dz++)
+                for (int dy = -2; dy <= 3; dy++) {
+                    BlockPos f = me.offset(dx, dy, dz);
+                    double d = dx * dx + dz * dz + dy * dy * 2.0;
+                    if (d < bd && safeStand(mc, f)) {
+                        bd = d;
+                        best = f;
+                    }
+                }
+        float yaw = p.getYRot();
+        if (best != null) {
+            Vec3 c = best.getCenter();
+            yaw = (float) (Math.atan2(c.z - p.getZ(), c.x - p.getX()) * 180.0 / Math.PI) - 90f;
+        }
+        aim.setTarget(yaw, 0f, 900f, 1.2f);
+        float err = Math.abs(net.minecraft.util.Mth.wrapDegrees(yaw - p.getYRot()));
+        mc.options.keyUp.setDown(err < 100f);
+        mc.options.keyJump.setDown(true);
+        mc.options.keySprint.setDown(false);
+        mc.options.keyDown.setDown(false);
+        mc.options.keyLeft.setDown(false);
+        mc.options.keyRight.setDown(false);
+        return true;
+    }
+
+    /** Dry cell we can stand in: air at feet and head, solid non-lava floor, no fluid, no magma. */
+    private static boolean safeStand(Minecraft mc, BlockPos f) {
+        var lvl = mc.level;
+        BlockState feet = lvl.getBlockState(f), head = lvl.getBlockState(f.above()), floor = lvl.getBlockState(f.below());
+        if (feet.is(Blocks.LAVA) || head.is(Blocks.LAVA) || floor.is(Blocks.LAVA) || floor.is(Blocks.MAGMA_BLOCK)
+                || feet.is(Blocks.FIRE) || feet.is(Blocks.SOUL_FIRE)) return false;
+        if (!lvl.getFluidState(f).isEmpty() || !lvl.getFluidState(f.above()).isEmpty()) return false;
+        if (!feet.getCollisionShape(lvl, f).isEmpty() || !head.getCollisionShape(lvl, f.above()).isEmpty()) return false;
+        return !floor.getCollisionShape(lvl, f.below()).isEmpty();
     }
 
     private void setPhase(Phase ph, long now) {
