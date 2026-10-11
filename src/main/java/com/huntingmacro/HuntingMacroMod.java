@@ -60,6 +60,10 @@ public class HuntingMacroMod implements ClientModInitializer {
                 Chat.msg(controller.status());
                 return 1;
             }));
+            root.then(lit("items").executes(c -> {
+                if (mc.player != null) Chat.msg(HuntController.hotbarNames(mc.player));
+                return 1;
+            }));
             root.then(lit("scan").executes(c -> {
                 controller.scan(mc);
                 return 1;
@@ -161,6 +165,7 @@ public class HuntingMacroMod implements ClientModInitializer {
     private static void help() {
         Chat.msg("Commands:");
         Chat.msg(" /hunt start | stop | status");
+        Chat.msg(" /hunt items - list your hotbar item names\");
         Chat.msg(" /hunt scan - list zombies and name tags around you (find the right mob name)");
         Chat.msg(" /hunt mob <text|any> - name tag text of the zombies to hunt (default \"Miner\")");
         Chat.msg(" /hunt axe <text> - hotbar item name of the prime hunt axe (default \"Prime Huntaxe\")");

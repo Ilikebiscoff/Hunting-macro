@@ -148,8 +148,8 @@ public class HuntController {
             Chat.msg("No item named \"" + axeName + "\" in your hotbar (prime hunt axe). Set it with /hunt axe <text>. Not started.");
             return false;
         }
-        if (findByName(mc.player, holeName) < 0) {
-            Chat.msg("Warning: no item named \"" + holeName + "\" in your hotbar; the black hole step will be skipped (/hunt hole <text>).");
+        if (holeSlot(mc.player) < 0) {
+            Chat.msg("Warning: no item named \"" + holeName + "\" in your hotbar; the black hole step will be skipped (/hunt hole name <text>). Hotbar: " + hotbarNames(mc.player));
         }
         if (golden != Golden.OFF && findGolden(mc.player) < 0) {
             Chat.msg("Warning: no golden axe in your hotbar; that step will be skipped.");
@@ -390,8 +390,10 @@ public class HuntController {
 
     private void holeStep(Minecraft mc, LocalPlayer p, long now) {
         releaseMovement(mc);
-        int slot = findByName(p, holeName);
-        if (slot < 0) { // nothing to place: carry on hunting
+        int slot = holeSlot(p);
+        if (slot < 0) { // nothing to place: say why, carry on hunting
+            Chat.msg("No black hole in the hotbar (looked for \"" + holeName + "\" / \"black hole\"). Hotbar: "
+                    + hotbarNames(p));
             finishCycle(p, now);
             return;
         }
@@ -399,7 +401,7 @@ public class HuntController {
         if (p.getInventory().getSelectedSlot() != slot) {
             p.getInventory().setSelectedSlot(slot);
             holeBefore = p.getInventory().getItem(slot).getCount();
-            wait = 2 + rand.nextInt(3);
+            wait = 3 + rand.nextInt(3);
             return;
         }
         int count = p.getInventory().getItem(slot).getCount();
@@ -409,15 +411,16 @@ public class HuntController {
             finishCycle(p, now);
             return;
         }
-        if (now - phaseSince > 3500) { // never saw it get used up: move on anyway
-            Chat.msg("Couldn't confirm the black hole was placed; moving on.");
+        if (now - phaseSince > 3500) { // never saw it get used up: assume the item isn't consumed
+            holesPlaced++;
             finishCycle(p, now);
             return;
         }
-        // keep trying (every 5 ticks) until it is used up
+        // look at the ground and right click, alternating "use on block" and plain "use" every 5 ticks
         aim.setTarget(p.getYRot(), 70f, 500f, 1f);
         if (stepTicks++ % 5 != 0) return;
-        if (mc.hitResult instanceof BlockHitResult bhr && bhr.getType() == HitResult.Type.BLOCK) {
+        int attempt = stepTicks / 5;
+        if (attempt % 2 == 1 && mc.hitResult instanceof BlockHitResult bhr && bhr.getType() == HitResult.Type.BLOCK) {
             mc.gameMode.useItemOn(p, InteractionHand.MAIN_HAND, bhr);
         } else {
             mc.gameMode.useItem(p, InteractionHand.MAIN_HAND);
@@ -438,6 +441,22 @@ public class HuntController {
     }
 
     // ---- items --------------------------------------------------------------------------------------------
+
+    /** Hotbar item names, for /hunt items and error messages. */
+    public static String hotbarNames(LocalPlayer p) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 9; i++) {
+            ItemStack st = p.getInventory().getItem(i);
+            sb.append(i + 1).append(": ").append(st.isEmpty() ? "-" : st.getHoverName().getString());
+            if (i < 8) sb.append(" | ");
+        }
+        return sb.toString();
+    }
+
+    private int holeSlot(LocalPlayer p) {
+        int s = findByName(p, holeName);
+        return s >= 0 ? s : findByName(p, "black hole");
+    }
 
     private static int findByName(LocalPlayer p, String text) {
         if (text == null || text.isBlank()) return -1;
