@@ -60,7 +60,7 @@ public class HuntController {
     private static final long BLACKLIST_MS = 15_000;
     private static final long TAG_MS = 120_000;
     /** Eye to hitbox centre distance at which we stop walking and swing. */
-    private static final double HIT_DIST = 2.9;
+    private static final double HIT_DIST = 3.4; // start aiming early; the real attack needs the crosshair on the zombie
     private static final long HIT_TIMEOUT_MS = 2500;
     /** The walk grid is 96 wide: zombies further out than this can be seen (ESP) but not pathed to yet. */
     private static final double PLAN_RADIUS = 44.0;
@@ -154,6 +154,9 @@ public class HuntController {
     private long holeEndsAt;
     /** Zombie we hit just before the hole, and the holes still waiting to see their zombie get sucked in. */
     private Entity lastHit;
+    private int holeLeft;
+    /** Black holes placed in a row after every hit (the item has to come back between them). */
+    public volatile int holeCount = 2;
     private final List<Entity> hitZombies = new ArrayList<>();
     private int killsSinceRefresh, kills;
     private long hitAt, holeUseStart, vanishAt;
@@ -969,8 +972,8 @@ public class HuntController {
             }
             current = near;
             releaseMovement(mc);
-            aim.retarget();
-            wait = 2 + rand.nextInt(3);
+            aim.retargetFast();
+            wait = 0;
             setPhase(Phase.HIT, now);
             return;
         }
@@ -1008,11 +1011,11 @@ public class HuntController {
         if (p.getInventory().getSelectedSlot() != slot) p.getInventory().setSelectedSlot(slot);
 
         float[] ang = anglesTo(p, centre(current));
-        aim.setTarget(ang[0], ang[1], 700f, 1f);
+        aim.setTarget(ang[0], ang[1], 2500f, 1.4f);
         if (wait-- > 0) return;
 
-        boolean onIt = aim.settled(p, 3.5f) && mc.hitResult instanceof EntityHitResult ehr
-                && ehr.getEntity() == current;
+        // hit the moment the crosshair is on it (the real reach check), no settling wait
+        boolean onIt = mc.hitResult instanceof EntityHitResult ehr && ehr.getEntity() == current;
         if (onIt) {
             mc.gameMode.attack(p, current);
             p.swing(InteractionHand.MAIN_HAND);
@@ -1065,6 +1068,7 @@ public class HuntController {
     /** Hands over to the HUNT loop; {@link #handleHole} keeps using the hole until it is gone. */
     private void beginHole(long now) {
         holePending = true;
+        holeLeft = Math.max(1, holeCount);
         holeStart = now;
         holeHeld = false;
         holeBefore = -1;
@@ -1082,7 +1086,7 @@ public class HuntController {
         if (slot < 0) {
             if (holeHeld) { // it disappeared from the hotbar: placed
                 holeDone(mc, p, now, true, true);
-            } else if (now - holeStart > 4000) { // never showed up (still gone from the last one?)
+            } else if (now - holeStart > Math.max(4000L, (long) (cooldownSec * 1500) + 1500)) { // never showed up (still gone from the last one?)
                 Chat.msg("No black hole in the hotbar (looked for \"" + holeName + "\" / \"black hole\"). Hotbar: "
                         + hotbarNames(p));
                 holeDone(mc, p, now, false, false);
@@ -1145,15 +1149,25 @@ public class HuntController {
 
     /** Back to the Prime Huntaxe; keeps the current path so we don't stop walking. */
     private void holeDone(Minecraft mc, LocalPlayer p, long now, boolean ok, boolean vanished) {
-        holePending = false;
+        boolean first = holeLeft >= Math.max(1, holeCount); // timings/zombie are learned from the first hole only
         if (ok) {
             holesPlaced++;
-            if (holeAuto) learnTimings(now, vanished);
+            if (holeAuto && first) learnTimings(now, vanished);
             holeEndsAt = now + (long) (holeTimeSec * 1000); // the background timer: this hole is busy until then
-            if (holeAuto && lastHit != null) pendingHoles.add(new PendingHole(lastHit, now));
+            if (holeAuto && first && lastHit != null) pendingHoles.add(new PendingHole(lastHit, now));
         } else {
             holeMisses++; // not used this time: no timer, the next zombie isn't held back
         }
+        holeLeft--;
+        if (ok && holeLeft > 0) { // another one straight after (waits for the item to come back)
+            holeHeld = false;
+            holeBefore = -1;
+            holeStart = now;
+            holeUseStart = 0;
+            holeUseTick = 0;
+            return; // still pending
+        }
+        holePending = false;
         holeUseStart = 0;
         if (zoneOk) { // remember where this move ended (only spots inside the zone)
             moves.addLast(p.position());
