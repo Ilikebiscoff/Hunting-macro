@@ -38,7 +38,6 @@ public class HuntingMacroMod implements ClientModInitializer {
             controller.frame(Minecraft.getInstance());
             if (highlight) {
                 drawZombies();
-                drawHoles();
                 drawPlan();
             }
         });
@@ -78,7 +77,7 @@ public class HuntingMacroMod implements ClientModInitializer {
             }));
             root.then(lit("mob")
                     .executes(c -> {
-                        Chat.msg("Mob name filter: \"" + controller.mobFilter + "\" (/hunt mob <text>, /hunt mob any)");
+                        Chat.msg("Mob name filter: " + (controller.mobFilter.isEmpty() ? "any zombie" : "\"" + controller.mobFilter + "\"") + " (/hunt mob <text>, /hunt mob any)");
                         return 1;
                     })
                     .then(arg("text", StringArgumentType.greedyString()).executes(c -> {
@@ -212,7 +211,7 @@ public class HuntingMacroMod implements ClientModInitializer {
         Chat.msg(" /hunt start | stop | status");
         Chat.msg(" /hunt items - list your hotbar item names");
         Chat.msg(" /hunt scan - list zombies and name tags around you (find the right mob name)");
-        Chat.msg(" /hunt mob <text|any> - name tag text of the zombies to hunt (default \"Miner\")");
+        Chat.msg(" /hunt mob <text|any> - name tag text of the zombies to hunt (default: any zombie)");
         Chat.msg(" /hunt axe <text> - hotbar item name of the prime hunt axe (default \"Prime Huntaxe\")");
         Chat.msg(" /hunt golden use|hit|off - what to do with the golden axe (default off)");
         Chat.msg(" /hunt hole name <text> - black hole item name");
@@ -242,28 +241,16 @@ public class HuntingMacroMod implements ClientModInitializer {
 
     private static final int GREY = 0xFF9A9A9A;
     private static final int GREY_FILL = 0x309A9A9A;
-    private static final int RED = 0xFFFF4040;
-    private static final int RED_FILL = 0x30FF4040;
 
-    /** ESP on every zombie in range: green = to hunt, yellow = current, grey = already hit, red = not a Miner. */
+    /** ESP on every zombie we will hunt: green = to hunt, yellow = current, grey = already hit. */
     private void drawZombies() {
         for (var z : controller.esp()) {
             var box = z.e().getBoundingBox();
             switch (z.kind()) {
                 case 1 -> Gizmos.cuboid(box, GizmoStyle.strokeAndFill(YELLOW, 2.5f, YELLOW_FILL)).setAlwaysOnTop();
                 case 2 -> Gizmos.cuboid(box, GizmoStyle.strokeAndFill(GREY, 1.5f, GREY_FILL)).setAlwaysOnTop();
-                case 3 -> Gizmos.cuboid(box, GizmoStyle.strokeAndFill(RED, 1.5f, RED_FILL)).setAlwaysOnTop();
                 default -> Gizmos.cuboid(box, GizmoStyle.strokeAndFill(GREEN, 2f, GREEN_FILL)).setAlwaysOnTop();
             }
-        }
-    }
-
-    private void drawHoles() {
-        for (Vec3 h : controller.holeCentres()) {
-            Gizmos.cuboid(new AABB(h.x - 0.4, h.y, h.z - 0.4, h.x + 0.4, h.y + 0.8, h.z + 0.4),
-                    GizmoStyle.stroke(PURPLE, 3f)).setAlwaysOnTop();
-            Gizmos.billboardText("black hole", new Vec3(h.x, h.y + 1.3, h.z),
-                    TextGizmo.Style.forColorAndCentered(PURPLE).withScale(1.2f)).setAlwaysOnTop();
         }
     }
 

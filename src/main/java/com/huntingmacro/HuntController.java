@@ -55,7 +55,7 @@ public class HuntController {
     private static final long STUCK_MS = 8000;
     private static final double STUCK_RADIUS = 3.0;
 
-    private enum Phase { HUNT, HIT, GOLDEN, HOLE, RETURN }
+    private enum Phase { HUNT, HIT, GOLDEN, RETURN }
 
     public enum Golden { USE, HIT, OFF }
 
@@ -84,7 +84,8 @@ public class HuntController {
     private enum Follow { MOVING, ARRIVED, STUCK }
 
     // ---- settings (/hunt ...) ---------------------------------------------------------------
-    public volatile String mobFilter = "Miner";
+    /** Optional name-tag filter; empty = every zombie that gets ESP is hunted. */
+    public volatile String mobFilter = "";
     public volatile String axeName = "Prime Huntaxe";
     public volatile String holeName = "Medium Pocket Black Hole";
     public volatile Golden golden = Golden.OFF;
@@ -109,16 +110,16 @@ public class HuntController {
     private int wait, stepTicks;
     private long phaseSince;
     private Entity current;
-    /** Where the zombie stood when we hit it: the black hole goes down here. */
-    private Vec3 holeAt;
     private int holeBefore = -1;
     /** The black hole was in hand this cycle (so it vanishing from the hotbar means it was placed). */
     private boolean holeHeld;
+    /** Black hole being used while we already walk to the next zombie. */
+    private boolean holePending;
+    private long holeStart;
+    private int holeUseTick, holeFails;
 
     /** entity id -> time we hit it (never hit twice) or gave up on it. */
     private final Map<Integer, Long> tagged = new HashMap<>();
-    private record Hole(Vec3 pos, long until) {}
-    private final List<Hole> holes = new ArrayList<>();
 
     public int hits, holesPlaced;
 
@@ -147,7 +148,7 @@ public class HuntController {
     private int zoneTick, outChecks;
     private boolean zoneOk = true;
 
-    /** ESP: every zombie around us, with a colour kind (0 target, 1 current, 2 already hit, 3 other mob). */
+    /** ESP: every zombie around us, with a colour kind (0 target, 1 current, 2 already hit). */
     public record Esp(Entity e, int kind) {}
     private volatile List<Esp> esp = List.of();
 
@@ -185,7 +186,8 @@ public class HuntController {
         lastPlanRequest = 0;
         avoid.clear();
         blacklist.clear();
-        holes.clear();
+        holePending = false;
+        holeFails = 0;
         recoverTicks = 0;
         wdCursor = null;
         anchor = null;
@@ -229,7 +231,6 @@ public class HuntController {
             return;
         }
         tagged.values().removeIf(t -> now - t > TAG_MS);
-        holes.removeIf(h -> now > h.until);
         avoid.values().removeIf(t -> now - t > AVOID_MS);
         blacklist.values().removeIf(t -> now - t > BLACKLIST_MS);
 
@@ -238,7 +239,6 @@ public class HuntController {
             case HUNT -> hunt(mc, p, now);
             case HIT -> hit(mc, p, now);
             case GOLDEN -> goldenStep(mc, p, now);
-            case HOLE -> holeStep(mc, p, now);
             case RETURN -> returnStep(mc, p, now);
         }
         if (phase == Phase.HUNT || phase == Phase.RETURN) stuckCheck(mc, p, now);
@@ -246,8 +246,6 @@ public class HuntController {
 
     private void setPhase(Phase ph, long now) {
         phase = ph;
-        holeBefore = -1;
-        holeHeld = false;
         phaseSince = now;
         stepTicks = 0;
     }
@@ -260,14 +258,18 @@ public class HuntController {
         String filter = mobFilter.toLowerCase(Locale.ROOT);
         List<Entity> out = new ArrayList<>();
         for (Entity e : all) {
-            if (e.getType() != EntityType.ZOMBIE || !e.isAlive() || tagged.containsKey(e.getId())) continue;
-            if (!inArea(e)) continue;
-            if (!filter.isEmpty() && !nameMatches(e, all, filter)) continue;
+            if (!wanted(e, all, filter) || tagged.containsKey(e.getId())) continue;
             out.add(e);
         }
         Vec3 me = p.position();
         out.sort((a, b) -> Double.compare(a.distanceToSqr(me), b.distanceToSqr(me)));
         return out;
+    }
+
+    /** The one rule for "is this a target": used by both the hunter and the ESP so they always agree. */
+    private boolean wanted(Entity e, List<Entity> all, String filter) {
+        if (e.getType() != EntityType.ZOMBIE || !e.isAlive() || !inArea(e)) return false;
+        return filter.isEmpty() || nameMatches(e, all, filter);
     }
 
     /** Where to look for entities: the fixed area (plus a margin) or a box around us. */
@@ -333,6 +335,8 @@ public class HuntController {
 
     private void hunt(Minecraft mc, LocalPlayer p, long now) {
         if (checkZone(mc, p, now)) return;
+        if (holePending) handleHole(mc, p, now);
+        if (!running) return;
         List<Entity> cands = candidates(mc, p, now);
         lastCands = cands;
 
@@ -350,7 +354,7 @@ public class HuntController {
 
         // close enough with a clear line: stop and hit it
         Entity near = cands.get(0);
-        if (inMelee(mc, p, near)) {
+        if (!holePending && inMelee(mc, p, near)) {
             current = near;
             releaseMovement(mc);
             aim.retarget();
@@ -401,9 +405,8 @@ public class HuntController {
             mc.gameMode.attack(p, current);
             p.swing(InteractionHand.MAIN_HAND);
             tagged.put(current.getId(), now);
-            holeAt = current.position();
             hits++;
-            wait = 1 + rand.nextInt(2); // place the black hole right away
+            wait = 0; // black hole right away
             setPhase(Phase.GOLDEN, now);
         } else if (now - phaseSince > HIT_TIMEOUT_MS) {
             tagged.put(current.getId(), now - TAG_MS + 8000); // retry in 8 s
@@ -419,8 +422,7 @@ public class HuntController {
         if (wait-- > 0) return;
         int slot = golden == Golden.OFF ? -1 : findGolden(p);
         if (slot < 0) {
-            wait = 1 + rand.nextInt(3);
-            setPhase(Phase.HOLE, now);
+            beginHole(now);
             return;
         }
         switch (stepTicks++) {
@@ -439,75 +441,81 @@ public class HuntController {
                 }
                 wait = 4 + rand.nextInt(5);
             }
-            default -> {
-                wait = 1 + rand.nextInt(3);
-                setPhase(Phase.HOLE, now);
-            }
+            default -> beginHole(now);
         }
     }
 
-    // ---- HOLE: look down, place the black hole -----------------------------------------------------------
+    // ---- BLACK HOLE: plain right click, while already walking to the next zombie ---------------------------------
 
-    private void holeStep(Minecraft mc, LocalPlayer p, long now) {
-        releaseMovement(mc);
+    /** Hands over to the HUNT loop; {@link #handleHole} keeps using the hole until it is gone. */
+    private void beginHole(long now) {
+        holePending = true;
+        holeStart = now;
+        holeHeld = false;
+        holeBefore = -1;
+        holeUseTick = 0;
+        current = null;
+        setPhase(Phase.HUNT, now);
+    }
+
+    /**
+     * Every tick while pending: hold the hole and right click in the air every 3 ticks. It counts as placed once
+     * it vanished from the hotbar (or its stack shrank). Walking to the next zombie goes on meanwhile.
+     */
+    private void handleHole(Minecraft mc, LocalPlayer p, long now) {
         int slot = holeSlot(p);
-        if (slot < 0 && holeHeld) { // it disappeared from the hotbar: that means it was placed
-            holesPlaced++;
-            finishCycle(p, now);
+        if (slot < 0) {
+            if (holeHeld) { // it disappeared from the hotbar: placed
+                holeDone(mc, p, now, true);
+            } else if (now - holeStart > 4000) { // never showed up (still gone from the last one?)
+                Chat.msg("No black hole in the hotbar (looked for \"" + holeName + "\" / \"black hole\"). Hotbar: "
+                        + hotbarNames(p));
+                holeDone(mc, p, now, false);
+            }
             return;
         }
-        if (slot < 0) { // nothing to place: say why, carry on hunting
-            Chat.msg("No black hole in the hotbar (looked for \"" + holeName + "\" / \"black hole\"). Hotbar: "
-                    + hotbarNames(p));
-            finishCycle(p, now);
-            return;
-        }
-        if (wait-- > 0) return;
         if (p.getInventory().getSelectedSlot() != slot) {
             p.getInventory().setSelectedSlot(slot);
             holeBefore = p.getInventory().getItem(slot).getCount();
-            wait = 3 + rand.nextInt(3);
+            holeStart = now; // the 1.5 s try starts once it is in hand
+            holeUseTick = 0;
             return;
         }
         holeHeld = true;
         int count = p.getInventory().getItem(slot).getCount();
         if (holeBefore < 0) holeBefore = count;
-        if (count < holeBefore) { // one was used up: it placed
-            holesPlaced++;
-            finishCycle(p, now);
+        if (count < holeBefore) {
+            holeDone(mc, p, now, true);
             return;
         }
-        if (now - phaseSince > 2500) { // never saw it disappear or get used up: move on anyway
-            holesPlaced++;
-            finishCycle(p, now);
+        if (now - holeStart > 1500) { // never saw it vanish or shrink
+            holeDone(mc, p, now, false);
             return;
         }
-        // look at the ground and right click, alternating "use on block" and plain "use" every 5 ticks
-        aim.setTarget(p.getYRot(), 70f, 500f, 1f);
-        if (stepTicks++ % 5 != 0) return;
-        int attempt = stepTicks / 5;
-        if (attempt % 2 == 1 && mc.hitResult instanceof BlockHitResult bhr && bhr.getType() == HitResult.Type.BLOCK) {
-            mc.gameMode.useItemOn(p, InteractionHand.MAIN_HAND, bhr);
-        } else {
+        if (holeUseTick++ % 3 == 0) {
             mc.gameMode.useItem(p, InteractionHand.MAIN_HAND);
+            p.swing(InteractionHand.MAIN_HAND);
         }
-        p.swing(InteractionHand.MAIN_HAND);
     }
 
-    /** Back to the prime axe and on to the next zombie. */
-    private void finishCycle(LocalPlayer p, long now) {
+    /** Back to the Prime Huntaxe; keeps the current path so we don't stop walking. */
+    private void holeDone(Minecraft mc, LocalPlayer p, long now, boolean ok) {
+        holePending = false;
+        if (ok) {
+            holesPlaced++;
+            holeFails = 0;
+        } else if (++holeFails >= 3) {
+            Chat.msg("The black hole never got used 3 times in a row - stopping. Check /hunt items and /hunt hole name.");
+            stop(mc);
+            return;
+        }
         if (zoneOk) { // remember where this move ended (only spots inside the zone)
             moves.addLast(p.position());
             while (moves.size() > 12) moves.removeFirst();
         }
         int axe = findByName(p, axeName);
         if (axe >= 0 && p.getInventory().getSelectedSlot() != axe) p.getInventory().setSelectedSlot(axe);
-        current = null;
         planDirty = true;
-        lastPlanRequest = 0;
-        leg = null;
-        legCursor = null;
-        setPhase(Phase.HUNT, now);
     }
 
     // ---- items --------------------------------------------------------------------------------------------
@@ -672,89 +680,6 @@ public class HuntController {
 
     public Entity currentTarget() {
         return running ? current : null;
-    }
-
-    public List<Vec3> holeCentres() {
-        List<Vec3> out = new ArrayList<>();
-        for (Hole h : holes) out.add(h.pos);
-        return out;
-    }
-
-    // ---- zone guard --------------------------------------------------------------------------------------
-
-    /** Every ~0.5 s: if the sidebar says we left the zone, go back to where we were 3 moves ago. */
-    private boolean checkZone(Minecraft mc, LocalPlayer p, long now) {
-        if (!zoneGuard || zoneText.isBlank() || now < zoneGrace || ++zoneTick % 10 != 0) return false;
-        Boolean in = Zone.contains(mc, zoneText);
-        if (in == null) return false; // loading screen / no SkyBlock sidebar: can't tell
-        zoneOk = in;
-        if (in) {
-            outChecks = 0;
-            return false;
-        }
-        if (++outChecks < 2) return false; // must be out for two checks in a row
-        outChecks = 0;
-        Vec3[] arr = moves.toArray(new Vec3[0]);
-        if (arr.length == 0) {
-            Chat.msg("Left \"" + zoneText + "\" and there is no earlier spot to return to - stopping.");
-            stop(mc);
-            return true;
-        }
-        returnTo = arr[Math.max(0, arr.length - 3)];
-        returnSince = now;
-        leg = null;
-        legCursor = null;
-        planDirty = true;
-        releaseMovement(mc);
-        Chat.msg("Left \"" + zoneText + "\" - walking back to where I was 3 moves ago.");
-        setPhase(Phase.RETURN, now);
-        return true;
-    }
-
-    private void returnStep(Minecraft mc, LocalPlayer p, long now) {
-        if (returnTo == null) {
-            setPhase(Phase.HUNT, now);
-            return;
-        }
-        if (hDist(p.position(), returnTo) < 3.5 && Math.abs(p.getY() - returnTo.y) < 4) {
-            returnTo = null;
-            leg = null;
-            legCursor = null;
-            planDirty = true;
-            zoneGrace = now + 3000; // let the sidebar catch up
-            outChecks = 0;
-            setPhase(Phase.HUNT, now);
-            return;
-        }
-        if (now - returnSince > 40_000) {
-            Chat.msg("Couldn't get back into the zone in 40s - stopping.");
-            stop(mc);
-            return;
-        }
-        navigateTo(mc, p, now, List.of(BlockPos.containing(returnTo.x, returnTo.y, returnTo.z)), List.of());
-    }
-
-    // ---- ESP -------------------------------------------------------------------------------------------------------
-
-    private void updateEsp(Minecraft mc) {
-        LocalPlayer p = mc.player;
-        List<Entity> all = mc.level.getEntities((Entity) null, scanBox(p));
-        String filter = mobFilter.toLowerCase(Locale.ROOT);
-        List<Esp> out = new ArrayList<>();
-        for (Entity e : all) {
-            if (e.getType() != EntityType.ZOMBIE || !e.isAlive() || !inArea(e)) continue;
-            int kind;
-            if (e == current) kind = 1;
-            else if (tagged.containsKey(e.getId())) kind = 2;
-            else if (!filter.isEmpty() && !nameMatches(e, all, filter)) kind = 3;
-            else kind = 0;
-            out.add(new Esp(e, kind));
-        }
-        esp = out;
-    }
-
-    public List<Esp> esp() {
-        return esp;
     }
 
     public String status() {
