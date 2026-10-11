@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "huntingmacro",
+  "version": "${version}",
+  "name": "Hunting Macro",
+  "description": "Hits Diamond Reserve miner zombies once, drops a black hole and paths to the next one.",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["com.huntingmacro.HuntingMacroMod"]
+  },
+  "depends": {
+    "fabricloader": ">=0.18.0",
+    "minecraft": "26.1.*",
+    "java": ">=25",
+    "fabric-api": "*"
+  }
+}
