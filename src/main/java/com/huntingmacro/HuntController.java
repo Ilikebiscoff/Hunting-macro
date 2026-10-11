@@ -19,6 +19,7 @@ import net.minecraft.world.phys.Vec3;
 import com.huntingmacro.pathing.Planner;
 import com.huntingmacro.pathing.WalkCache;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -51,7 +52,7 @@ public class HuntController {
     private static final long STUCK_MS = 8000;
     private static final double STUCK_RADIUS = 3.0;
 
-    private enum Phase { HUNT, HIT, GOLDEN, HOLE }
+    private enum Phase { HUNT, HIT, GOLDEN, HOLE, RETURN }
 
     public enum Golden { USE, HIT, OFF }
 
@@ -85,6 +86,9 @@ public class HuntController {
     public volatile String holeName = "Medium Pocket Black Hole";
     public volatile Golden golden = Golden.OFF;
     public volatile double range = 40.0;
+    /** Sidebar text of the hunting area; leaving it sends us back to where we were 3 moves ago. */
+    public volatile String zoneText = "Diamond Reserve";
+    public volatile boolean zoneGuard = true;
     /** Command run when stuck / nothing to hunt for {@link #idleWarpMs} (empty = just re-plan). */
     public volatile String warpCmd = "";
     public volatile long idleWarpMs = 8000;
@@ -128,6 +132,17 @@ public class HuntController {
     private float recoverYaw;
     private List<Entity> lastCands = List.of();
 
+    // zone guard: one "move" = one finished hunt cycle (hit + black hole)
+    private final ArrayDeque<Vec3> moves = new ArrayDeque<>();
+    private Vec3 returnTo;
+    private long returnSince, zoneGrace;
+    private int zoneTick, outChecks;
+    private boolean zoneOk = true;
+
+    /** ESP: every zombie around us, with a colour kind (0 target, 1 current, 2 already hit, 3 other mob). */
+    public record Esp(Entity e, int kind) {}
+    private volatile List<Esp> esp = List.of();
+
     public HuntController(WalkCache cache) {
         this.cache = cache;
     }
@@ -168,6 +183,12 @@ public class HuntController {
         anchor = null;
         warpPauseUntil = 0;
         idleSince = 0;
+        moves.clear();
+        returnTo = null;
+        outChecks = 0;
+        zoneOk = true;
+        zoneGrace = System.currentTimeMillis() + 2000;
+        moves.addLast(mc.player.position());
         aim.reset();
         running = true;
         return true;
@@ -181,6 +202,7 @@ public class HuntController {
     // ---- main loop ----------------------------------------------------------------------------
 
     public void tick(Minecraft mc) {
+        if (mc.level != null && mc.player != null && mc.level.getGameTime() % 4 == 0) updateEsp(mc);
         if (!running) return;
         LocalPlayer p = mc.player;
         if (p == null || mc.level == null || mc.screen != null) {
@@ -209,8 +231,9 @@ public class HuntController {
             case HIT -> hit(mc, p, now);
             case GOLDEN -> goldenStep(mc, p, now);
             case HOLE -> holeStep(mc, p, now);
+            case RETURN -> returnStep(mc, p, now);
         }
-        if (phase == Phase.HUNT) stuckCheck(mc, p, now);
+        if (phase == Phase.HUNT || phase == Phase.RETURN) stuckCheck(mc, p, now);
     }
 
     private void setPhase(Phase ph, long now) {
@@ -273,6 +296,7 @@ public class HuntController {
     // ---- HUNT: walk to the next zombie -----------------------------------------------------------
 
     private void hunt(Minecraft mc, LocalPlayer p, long now) {
+        if (checkZone(mc, p, now)) return;
         List<Entity> cands = candidates(mc, p, now);
         lastCands = cands;
 
@@ -430,6 +454,10 @@ public class HuntController {
 
     /** Back to the prime axe and on to the next zombie. */
     private void finishCycle(LocalPlayer p, long now) {
+        if (zoneOk) { // remember where this move ended (only spots inside the zone)
+            moves.addLast(p.position());
+            while (moves.size() > 12) moves.removeFirst();
+        }
         int axe = findByName(p, axeName);
         if (axe >= 0 && p.getInventory().getSelectedSlot() != axe) p.getInventory().setSelectedSlot(axe);
         current = null;
@@ -479,11 +507,20 @@ public class HuntController {
     // ---- navigation ---------------------------------------------------------------------------------------
 
     private void navigate(Minecraft mc, LocalPlayer p, long now, List<Entity> cands) {
+        List<BlockPos> ts = new ArrayList<>();
+        for (Entity e : cands) {
+            BlockPos bp = BlockPos.containing(e.getX(), e.getY(), e.getZ());
+            if (!blacklist.containsKey(bp)) ts.add(bp);
+        }
+        navigateTo(mc, p, now, ts, cands);
+    }
+
+    private void navigateTo(Minecraft mc, LocalPlayer p, long now, List<BlockPos> targets, List<Entity> cands) {
         Planner.Plan plan = planner.poll();
         if (plan != null) accept(plan, p);
 
         long interval = leg == null ? 400 : 600; // zombies move: keep the goal fresh
-        if ((planDirty || now - lastPlanRequest > interval) && now - lastPlanRequest > 250) requestPlan(p, now, cands);
+        if ((planDirty || now - lastPlanRequest > interval) && now - lastPlanRequest > 250) requestPlan(p, now, targets);
 
         if (leg == null) {
             releaseMovement(mc);
@@ -516,12 +553,7 @@ public class HuntController {
         }
     }
 
-    private void requestPlan(LocalPlayer p, long now, List<Entity> cands) {
-        List<BlockPos> ts = new ArrayList<>();
-        for (Entity e : cands) {
-            BlockPos bp = BlockPos.containing(e.getX(), e.getY(), e.getZ());
-            if (!blacklist.containsKey(bp)) ts.add(bp);
-        }
+    private void requestPlan(LocalPlayer p, long now, List<BlockPos> ts) {
         Set<BlockPos> keep = leg == null ? Set.of() : new HashSet<>(leg.targets());
         if (planner.request(cache.grid(), p.blockPosition(), ts, keep, new HashSet<>(avoid.keySet()))) {
             lastPlanRequest = now;
@@ -603,8 +635,85 @@ public class HuntController {
         return out;
     }
 
+    // ---- zone guard --------------------------------------------------------------------------------------
+
+    /** Every ~0.5 s: if the sidebar says we left the zone, go back to where we were 3 moves ago. */
+    private boolean checkZone(Minecraft mc, LocalPlayer p, long now) {
+        if (!zoneGuard || zoneText.isBlank() || now < zoneGrace || ++zoneTick % 10 != 0) return false;
+        Boolean in = Zone.contains(mc, zoneText);
+        if (in == null) return false; // loading screen / no SkyBlock sidebar: can't tell
+        zoneOk = in;
+        if (in) {
+            outChecks = 0;
+            return false;
+        }
+        if (++outChecks < 2) return false; // must be out for two checks in a row
+        outChecks = 0;
+        Vec3[] arr = moves.toArray(new Vec3[0]);
+        if (arr.length == 0) {
+            Chat.msg("Left \"" + zoneText + "\" and there is no earlier spot to return to - stopping.");
+            stop(mc);
+            return true;
+        }
+        returnTo = arr[Math.max(0, arr.length - 3)];
+        returnSince = now;
+        leg = null;
+        legCursor = null;
+        planDirty = true;
+        releaseMovement(mc);
+        Chat.msg("Left \"" + zoneText + "\" - walking back to where I was 3 moves ago.");
+        setPhase(Phase.RETURN, now);
+        return true;
+    }
+
+    private void returnStep(Minecraft mc, LocalPlayer p, long now) {
+        if (returnTo == null) {
+            setPhase(Phase.HUNT, now);
+            return;
+        }
+        if (hDist(p.position(), returnTo) < 3.5 && Math.abs(p.getY() - returnTo.y) < 4) {
+            returnTo = null;
+            leg = null;
+            legCursor = null;
+            planDirty = true;
+            zoneGrace = now + 3000; // let the sidebar catch up
+            outChecks = 0;
+            setPhase(Phase.HUNT, now);
+            return;
+        }
+        if (now - returnSince > 40_000) {
+            Chat.msg("Couldn't get back into the zone in 40s - stopping.");
+            stop(mc);
+            return;
+        }
+        navigateTo(mc, p, now, List.of(BlockPos.containing(returnTo.x, returnTo.y, returnTo.z)), List.of());
+    }
+
+    // ---- ESP -------------------------------------------------------------------------------------------------------
+
+    private void updateEsp(Minecraft mc) {
+        LocalPlayer p = mc.player;
+        List<Entity> all = mc.level.getEntities((Entity) null, p.getBoundingBox().inflate(range, Math.min(range, 20), range));
+        String filter = mobFilter.toLowerCase(Locale.ROOT);
+        List<Esp> out = new ArrayList<>();
+        for (Entity e : all) {
+            if (e.getType() != EntityType.ZOMBIE || !e.isAlive()) continue;
+            int kind;
+            if (e == current) kind = 1;
+            else if (tagged.containsKey(e.getId())) kind = 2;
+            else if (!filter.isEmpty() && !nameMatches(e, all, filter)) kind = 3;
+            else kind = 0;
+            out.add(new Esp(e, kind));
+        }
+        esp = out;
+    }
+
+    public List<Esp> esp() {
+        return esp;
+    }
+
     public String status() {
-        return (running ? "RUNNING " + phase : "stopped") + " | hits=" + hits + " holes=" + holesPlaced
+        return (running ? "RUNNING " + phase : "stopped") + " | zone=\"" + (zoneGuard ? zoneText : "off") + "\" in=" + zoneOk + " | hits=" + hits + " holes=" + holesPlaced
                 + " | zombies in view=" + lastCands.size() + " | mob=\"" + mobFilter + "\" axe=\"" + axeName
                 + "\" hole=\"" + holeName + "\" golden=" + golden;
     }

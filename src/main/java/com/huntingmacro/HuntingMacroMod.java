@@ -16,7 +16,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.gizmos.GizmoStyle;
 import net.minecraft.gizmos.Gizmos;
 import net.minecraft.gizmos.TextGizmo;
-import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
@@ -116,6 +115,20 @@ public class HuntingMacroMod implements ClientModInitializer {
                     .then(lit("use").executes(c -> setGolden(HuntController.Golden.USE, "right-click it once")))
                     .then(lit("hit").executes(c -> setGolden(HuntController.Golden.HIT, "hit the zombie with it")))
                     .then(lit("off").executes(c -> setGolden(HuntController.Golden.OFF, "skip it"))));
+            root.then(lit("zone")
+                    .executes(c -> {
+                        Chat.msg("Zone guard " + (controller.zoneGuard ? "ON" : "OFF") + ", zone text \"" + controller.zoneText
+                                + "\" (/hunt zone off|on|<sidebar text>)");
+                        return 1;
+                    })
+                    .then(arg("text", StringArgumentType.greedyString()).executes(c -> {
+                        String t = StringArgumentType.getString(c, "text").trim();
+                        if (t.equalsIgnoreCase("off")) controller.zoneGuard = false;
+                        else if (t.equalsIgnoreCase("on")) controller.zoneGuard = true;
+                        else { controller.zoneText = t; controller.zoneGuard = true; }
+                        Chat.msg("Zone guard " + (controller.zoneGuard ? "ON (" + controller.zoneText + ")" : "OFF"));
+                        return 1;
+                    })));
             root.then(lit("range").then(arg("blocks", DoubleArgumentType.doubleArg(5, 80)).executes(c -> {
                 controller.range = DoubleArgumentType.getDouble(c, "blocks");
                 Chat.msg("Search range " + controller.range + " blocks.");
@@ -171,6 +184,7 @@ public class HuntingMacroMod implements ClientModInitializer {
         Chat.msg(" /hunt axe <text> - hotbar item name of the prime hunt axe (default \"Prime Huntaxe\")");
         Chat.msg(" /hunt golden use|hit|off - what to do with the golden axe (default off)");
         Chat.msg(" /hunt hole name <text> - black hole item name");
+        Chat.msg(" /hunt zone [off|on|text] - stay inside this area (sidebar text, default \"Diamond Reserve\"); if you leave, walk back to where you were 3 moves ago");
         Chat.msg(" /hunt range <blocks> - how far to look for zombies (default 40)");
         Chat.msg(" /hunt warp <command|off> - command to run when stuck or nothing to hunt (e.g. warp dr)");
         Chat.msg(" /hunt path - last pathfinder stats, /hunt highlight - toggle overlay, /hunt parkour on|off");
@@ -193,12 +207,21 @@ public class HuntingMacroMod implements ClientModInitializer {
     private static final int CYAN_FILL = 0x3030E0FF;
     private static final int PURPLE = 0xFFB040FF;
 
+    private static final int GREY = 0xFF9A9A9A;
+    private static final int GREY_FILL = 0x309A9A9A;
+    private static final int RED = 0xFFFF4040;
+    private static final int RED_FILL = 0x30FF4040;
+
+    /** ESP on every zombie in range: green = to hunt, yellow = current, grey = already hit, red = not a Miner. */
     private void drawZombies() {
-        Entity cur = controller.currentTarget();
-        for (Entity e : controller.candidatesSnapshot()) {
-            boolean isCur = e == cur;
-            Gizmos.cuboid(e.getBoundingBox(), isCur ? GizmoStyle.strokeAndFill(YELLOW, 2.5f, YELLOW_FILL)
-                    : GizmoStyle.strokeAndFill(GREEN, 2f, GREEN_FILL)).setAlwaysOnTop();
+        for (var z : controller.esp()) {
+            var box = z.e().getBoundingBox();
+            switch (z.kind()) {
+                case 1 -> Gizmos.cuboid(box, GizmoStyle.strokeAndFill(YELLOW, 2.5f, YELLOW_FILL)).setAlwaysOnTop();
+                case 2 -> Gizmos.cuboid(box, GizmoStyle.strokeAndFill(GREY, 1.5f, GREY_FILL)).setAlwaysOnTop();
+                case 3 -> Gizmos.cuboid(box, GizmoStyle.strokeAndFill(RED, 1.5f, RED_FILL)).setAlwaysOnTop();
+                default -> Gizmos.cuboid(box, GizmoStyle.strokeAndFill(GREEN, 2f, GREEN_FILL)).setAlwaysOnTop();
+            }
         }
     }
 
