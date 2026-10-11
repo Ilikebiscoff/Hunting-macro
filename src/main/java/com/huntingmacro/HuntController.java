@@ -472,9 +472,8 @@ public class HuntController {
             }
             case 1 -> { // wait for the teleport and the chunks
                 releaseKeys(mc);
-                if (now - rescueAt > 5000) {
-                    rescueStep = 2;
-                    rescueSince = now;
+                if (now - rescueAt > 5000 && cache.grid() != null) {
+                    startRescueSteps(now, 2);
                     avoid.clear();
                     leg = null;
                     legCursor = null;
@@ -482,24 +481,7 @@ public class HuntController {
                     lastPlanRequest = 0;
                 }
             }
-            case 2 -> { // path to the lift
-                Vec3 goal = new Vec3(liftX + 0.5, liftY, liftZ + 0.5);
-                if (hDist(p.position(), goal) < 3.0 && Math.abs(p.getY() - liftY) < 3.5) {
-                    releaseMovement(mc);
-                    rescueStep = 3;
-                    rescueAt = now;
-                    liftUseTick = 0;
-                    aim.retarget();
-                    return;
-                }
-                if (now - rescueSince > 90_000) {
-                    Chat.msg("Couldn't walk to the lift in 90 s (" + Planner.lastStats + ") - stopping.");
-                    stop(mc);
-                    return;
-                }
-                moving = true;
-                navigateTo(mc, p, now, List.of(BlockPos.containing(liftX, liftY, liftZ)), List.of());
-            }
+            case 2 -> liftWalk(mc, p, now);
             case 3 -> { // click the Lift Operator until its menu is open
                 releaseMovement(mc);
                 if (mc.screen instanceof AbstractContainerScreen<?>) {
@@ -569,6 +551,137 @@ public class HuntController {
                 setPhase(Phase.HUNT, now);
             }
         }
+    }
+
+    // The path map only reaches ~45 blocks around us and the planner has a cost limit, so a lift further away is
+    // approached in hops: each hop goes to the standable spot nearest to the lift that the planner can reach.
+    private final List<BlockPos> hopFailed = new ArrayList<>();
+    private BlockPos hopTarget;
+    private long hopAsked, rescueNoLeg, rescueReport;
+
+    private void liftWalk(Minecraft mc, LocalPlayer p, long now) {
+        Vec3 goal = new Vec3(liftX + 0.5, liftY, liftZ + 0.5);
+        double dist = hDist(p.position(), goal);
+        if (dist < 3.0 && Math.abs(p.getY() - liftY) < 3.5) {
+            releaseMovement(mc);
+            rescueStep = 3;
+            rescueAt = now;
+            liftUseTick = 0;
+            aim.retarget();
+            return;
+        }
+        if (now - rescueSince > 120_000) {
+            Chat.msg("Couldn't walk to the lift in 120 s (" + Planner.lastStats + ") - stopping.");
+            stop(mc);
+            return;
+        }
+        if (now - rescueReport > 5000) { // progress report, so a failure can be diagnosed
+            rescueReport = now;
+            Chat.msg(String.format(Locale.ROOT, "Lift walk: %.0f blocks to go (dy %.0f), target %s, %s | planner: %s",
+                    dist, liftY - p.getY(), hopTarget == null ? "none" : hopTarget.toShortString(),
+                    leg == null ? "no path" : "walking", Planner.lastStats));
+        }
+
+        // this hop failed (the planner found no way to it): remember it and pick another
+        if (leg == null && hopTarget != null && now - hopAsked > 1500
+                && (Planner.lastStats.startsWith("no reachable") || Planner.lastStats.startsWith("no mushrooms"))) {
+            hopFailed.add(hopTarget);
+            hopTarget = null;
+        }
+        if (hopTarget == null || (leg == null && now - hopAsked > 4000)) {
+            hopTarget = chooseHop(p, goal);
+            hopAsked = now;
+            planDirty = true;
+            lastPlanRequest = 0;
+        }
+
+        if (hopTarget == null) { // no map yet / nothing standable: blind steer toward the lift
+            blindWalk(mc, p, goal);
+            return;
+        }
+        if (leg == null) {
+            if (rescueNoLeg == 0) rescueNoLeg = now;
+            if (now - rescueNoLeg > 8000) { // the planner can't help: just head for it
+                blindWalk(mc, p, goal);
+                return;
+            }
+        } else {
+            rescueNoLeg = 0;
+        }
+        moving = true;
+        navigateTo(mc, p, now, List.of(hopTarget), List.of());
+    }
+
+    /** Standable cell (in the path map) closest to the lift, skipping spots near failed hops. */
+    private BlockPos chooseHop(LocalPlayer p, Vec3 goal) {
+        var g = cache.grid();
+        if (g == null) return null;
+        Vec3 pos = p.position();
+        double direct = hDist(pos, goal);
+        if (hopFailed.isEmpty() && direct <= 30 && Math.abs(liftY - pos.y) <= 12)
+            return BlockPos.containing(liftX, liftY, liftZ); // close enough to plan straight to it
+        int px = (int) Math.floor(pos.x), py = (int) Math.floor(pos.y), pz = (int) Math.floor(pos.z);
+        BlockPos best = null;
+        double bd = Double.MAX_VALUE;
+        for (int x = px - 42; x <= px + 42; x++)
+            for (int z = pz - 42; z <= pz + 42; z++)
+                for (int y = py - 14; y <= py + 14; y++) {
+                    if (!g.standable(x, y, z)) continue;
+                    double d = Math.hypot(goal.x - (x + 0.5), goal.z - (z + 0.5)) + 1.5 * Math.abs(liftY - y);
+                    if (d >= bd) continue;
+                    boolean bad = false;
+                    for (BlockPos f : hopFailed)
+                        if (Math.abs(f.getX() - x) <= 6 && Math.abs(f.getZ() - z) <= 6 && Math.abs(f.getY() - y) <= 6) {
+                            bad = true;
+                            break;
+                        }
+                    if (bad) continue;
+                    bd = d;
+                    best = new BlockPos(x, y, z);
+                }
+        if (best == null && !hopFailed.isEmpty()) hopFailed.clear(); // tried everything: start over
+        return best;
+    }
+
+    /** Last resort: face the lift, run, and jump when something is in the way. */
+    private void blindWalk(Minecraft mc, LocalPlayer p, Vec3 goal) {
+        float yaw = (float) (Math.atan2(goal.z - p.getZ(), goal.x - p.getX()) * 180.0 / Math.PI) - 90f;
+        aim.setTarget(yaw, 6f, WALK_TURN_SPEED, 1.0f);
+        float err = Math.abs(net.minecraft.util.Mth.wrapDegrees(yaw - p.getYRot()));
+        mc.options.keyUp.setDown(err < 60f);
+        mc.options.keySprint.setDown(err < 30f);
+        mc.options.keyJump.setDown(p.onGround() && p.horizontalCollision);
+        moving = true;
+    }
+
+    /** /hunt lift go [warp]: run just the lift trip from where you stand (for testing, no lava needed). */
+    public void testLift(Minecraft mc, boolean warp) {
+        LocalPlayer p = mc.player;
+        if (p == null) return;
+        long now = System.currentTimeMillis();
+        running = true;
+        holePending = false;
+        current = null;
+        leg = null;
+        legCursor = null;
+        avoid.clear();
+        recoverTicks = 0;
+        wdCursor = null;
+        planDirty = true;
+        lastPlanRequest = 0;
+        aim.reset();
+        Chat.msg("Lift test " + (warp ? "with /" + rescueCmd : "from here") + ". /hunt stop cancels.");
+        startRescueSteps(now, warp ? 0 : 2);
+    }
+
+    private void startRescueSteps(long now, int step) {
+        hopFailed.clear();
+        hopTarget = null;
+        rescueNoLeg = 0;
+        rescueReport = 0;
+        rescueSince = now;
+        rescueStep = step;
+        setPhase(Phase.RESCUE, now);
     }
 
     /** The NPC behind the "Lift Operator" name tag (name tags are armor stands; the NPC stands right there). */

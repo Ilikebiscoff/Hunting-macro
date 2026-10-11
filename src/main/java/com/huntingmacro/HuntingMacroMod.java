@@ -194,6 +194,15 @@ public class HuntingMacroMod implements ClientModInitializer {
                                 + ", NPC \"" + controller.liftNpc + "\", warp \"" + controller.rescueCmd + "\"");
                         return 1;
                     })
+                    .then(lit("go")
+                            .executes(c -> {
+                                controller.testLift(mc, false);
+                                return 1;
+                            })
+                            .then(lit("warp").executes(c -> {
+                                controller.testLift(mc, true);
+                                return 1;
+                            })))
                     .then(lit("npc").then(arg("text", StringArgumentType.greedyString()).executes(c -> {
                         controller.liftNpc = StringArgumentType.getString(c, "text").trim();
                         Chat.msg("Lift NPC name: \"" + controller.liftNpc + "\"");
@@ -326,7 +335,7 @@ public class HuntingMacroMod implements ClientModInitializer {
         Chat.msg(" /hunt area on|off|<x1> <z1> <x2> <z2> <y1> <y2> - only hunt zombies inside this box (default x -44..28, z -27..56, y 36..40)");
         Chat.msg(" /hunt hole auto [on|off|reset] - learn the black hole time from real holes (default ON, saved), /hunt hole time <s> | lead <s> - seconds a black hole needs to finish (default 5) and how long before that the next zombie is hit (default 0.5)");
         Chat.msg(" /hunt lava [on|off|limit <n>] - after more than 3 lava incidents: /warp deep, walk to the lift, click the Lift Operator, click the diamond");
-        Chat.msg(" /hunt lift [<x> <y> <z> | npc <text> | warp <cmd>] - lift spot (default 45 150 15), NPC name and warp command");
+        Chat.msg(" /hunt lift go [warp] (test the lift trip now) | lift [<x> <y> <z> | npc <text> | warp <cmd>] - lift spot (default 45 150 15), NPC name and warp command");
         Chat.msg(" /hunt range <blocks> - how far to look for zombies (default 80; pathing reaches ~44)");
         Chat.msg(" /hunt warp <command|off> - command to run when stuck or nothing to hunt (e.g. warp dr)");
         Chat.msg(" /hunt path - last pathfinder stats, /hunt highlight - toggle overlay, /hunt parkour on|off");
