@@ -106,6 +106,8 @@ public class HuntController {
     /** Where the zombie stood when we hit it: the black hole goes down here. */
     private Vec3 holeAt;
     private int holeBefore = -1;
+    /** The black hole was in hand this cycle (so it vanishing from the hotbar means it was placed). */
+    private boolean holeHeld;
 
     /** entity id -> time we hit it (never hit twice) or gave up on it. */
     private final Map<Integer, Long> tagged = new HashMap<>();
@@ -239,6 +241,7 @@ public class HuntController {
     private void setPhase(Phase ph, long now) {
         phase = ph;
         holeBefore = -1;
+        holeHeld = false;
         phaseSince = now;
         stepTicks = 0;
     }
@@ -415,6 +418,11 @@ public class HuntController {
     private void holeStep(Minecraft mc, LocalPlayer p, long now) {
         releaseMovement(mc);
         int slot = holeSlot(p);
+        if (slot < 0 && holeHeld) { // it disappeared from the hotbar: that means it was placed
+            holesPlaced++;
+            finishCycle(p, now);
+            return;
+        }
         if (slot < 0) { // nothing to place: say why, carry on hunting
             Chat.msg("No black hole in the hotbar (looked for \"" + holeName + "\" / \"black hole\"). Hotbar: "
                     + hotbarNames(p));
@@ -428,6 +436,7 @@ public class HuntController {
             wait = 3 + rand.nextInt(3);
             return;
         }
+        holeHeld = true;
         int count = p.getInventory().getItem(slot).getCount();
         if (holeBefore < 0) holeBefore = count;
         if (count < holeBefore) { // one was used up: it placed
@@ -435,7 +444,7 @@ public class HuntController {
             finishCycle(p, now);
             return;
         }
-        if (now - phaseSince > 3500) { // never saw it get used up: assume the item isn't consumed
+        if (now - phaseSince > 2500) { // never saw it disappear or get used up: move on anyway
             holesPlaced++;
             finishCycle(p, now);
             return;
