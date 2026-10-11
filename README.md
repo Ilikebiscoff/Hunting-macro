@@ -25,6 +25,6 @@ GitHub Actions builds the jar on every push (artifact + `latest-build` prereleas
 
 ## Caveats
 - **Macros are against Hypixel's rules and can get your account banned. Use at your own risk.**
-- Lava: if you end up in lava it drops everything, swims up and walks to the nearest dry spot (gives up after 15 s).
+- Lava: if you end up in lava it swims up and walks to the nearest dry spot. After more than 3 lava incidents it runs `/warp deep`, walks to 45 150 15, clicks the Lift Operator and then the diamond (`/hunt lava`, `/hunt lift`).
 - Untested in-game: item names, mob name tags, black hole radius/duration and the golden-axe behaviour are
   assumptions with sensible defaults; use `/hunt scan`, `/hunt mob`, `/hunt axe`, `/hunt hole ...` to match them.

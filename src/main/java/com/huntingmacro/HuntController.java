@@ -9,6 +9,9 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -57,7 +60,7 @@ public class HuntController {
     private static final long STUCK_MS = 8000;
     private static final double STUCK_RADIUS = 3.0;
 
-    private enum Phase { HUNT, HIT, GOLDEN, RETURN }
+    private enum Phase { HUNT, HIT, GOLDEN, RETURN, RESCUE }
 
     public enum Golden { USE, HIT, OFF }
 
@@ -92,6 +95,12 @@ public class HuntController {
     public volatile String holeName = "Medium Pocket Black Hole";
     public volatile Golden golden = Golden.OFF;
     public volatile double range = 80.0;
+    /** More than this many lava incidents -> warp out and take the lift operator back to the hunting level. */
+    public volatile boolean lavaRescue = true;
+    public volatile int lavaLimit = 3;
+    public volatile String rescueCmd = "warp deep";
+    public volatile int liftX = 45, liftY = 150, liftZ = 15;
+    public volatile String liftNpc = "Lift Operator";
     /** How long one black hole needs to fully suck an enemy in (s), and how long before that we hit the next one. */
     public volatile double holeTimeSec = 5.0;
     public volatile double holeLeadSec = 0.5;
@@ -223,7 +232,7 @@ public class HuntController {
         if (mc.level != null && mc.player != null && mc.level.getGameTime() % 4 == 0) updateEsp(mc);
         if (!running) return;
         LocalPlayer p = mc.player;
-        if (p == null || mc.level == null || mc.screen != null) {
+        if (p == null || mc.level == null || (mc.screen != null && phase != Phase.RESCUE)) {
             releaseKeys(mc);
             return;
         }
@@ -249,6 +258,7 @@ public class HuntController {
             case HIT -> hit(mc, p, now);
             case GOLDEN -> goldenStep(mc, p, now);
             case RETURN -> returnStep(mc, p, now);
+            case RESCUE -> rescueStep(mc, p, now);
         }
         if (phase == Phase.HUNT || phase == Phase.RETURN) stuckCheck(mc, p, now);
     }
@@ -257,6 +267,7 @@ public class HuntController {
 
     private long lavaSince;
     private boolean lavaMsg;
+    private int lavaCount;
 
     /**
      * In lava: drop everything, hold jump (swim up) and walk to the nearest dry, safe standing cell within 6 blocks.
@@ -264,6 +275,7 @@ public class HuntController {
      * already keeps away from lava.
      */
     private boolean escapeLava(Minecraft mc, LocalPlayer p, long now) {
+        if (phase == Phase.RESCUE && rescueStep < 2) return false; // warping out right now
         if (!p.isInLava()) {
             if (lavaSince != 0) {
                 lavaSince = 0;
@@ -278,9 +290,16 @@ public class HuntController {
             }
             return false;
         }
-        if (lavaSince == 0) lavaSince = now;
+        if (lavaSince == 0) {
+            lavaSince = now;
+            lavaCount++;
+            if (lavaRescue && lavaCount > lavaLimit) { // too many times: don't fight it, warp out
+                startRescue(mc, p, now);
+                return true;
+            }
+        }
         if (!lavaMsg) {
-            Chat.msg("In lava - getting out.");
+            Chat.msg("In lava - getting out (" + lavaCount + "x).");
             lavaMsg = true;
         }
         if (now - lavaSince > 15_000) {
@@ -326,6 +345,161 @@ public class HuntController {
         if (!lvl.getFluidState(f).isEmpty() || !lvl.getFluidState(f.above()).isEmpty()) return false;
         if (!feet.getCollisionShape(lvl, f).isEmpty() || !head.getCollisionShape(lvl, f.above()).isEmpty()) return false;
         return !floor.getCollisionShape(lvl, f.below()).isEmpty();
+    }
+
+    // ---- rescue: warp deep -> walk to the lift -> click the Lift Operator -> click the diamond -----------------------
+
+    private int rescueStep;
+    private long rescueAt, rescueSince;
+    private int liftUseTick;
+
+    private void startRescue(Minecraft mc, LocalPlayer p, long now) {
+        lavaSince = 0;
+        lavaMsg = false;
+        releaseKeys(mc);
+        holePending = false;
+        current = null;
+        leg = null;
+        legCursor = null;
+        recoverTicks = 0;
+        wdCursor = null;
+        Chat.msg("Stuck in lava " + lavaCount + " times - /" + rescueCmd + ", then the lift at "
+                + liftX + " " + liftY + " " + liftZ + ".");
+        rescueStep = 0;
+        setPhase(Phase.RESCUE, now);
+    }
+
+    private void rescueStep(Minecraft mc, LocalPlayer p, long now) {
+        switch (rescueStep) {
+            case 0 -> { // warp
+                p.connection.sendCommand(rescueCmd);
+                rescueAt = now;
+                rescueStep = 1;
+            }
+            case 1 -> { // wait for the teleport and the chunks
+                releaseKeys(mc);
+                if (now - rescueAt > 5000) {
+                    rescueStep = 2;
+                    rescueSince = now;
+                    avoid.clear();
+                    leg = null;
+                    legCursor = null;
+                    planDirty = true;
+                    lastPlanRequest = 0;
+                }
+            }
+            case 2 -> { // path to the lift
+                Vec3 goal = new Vec3(liftX + 0.5, liftY, liftZ + 0.5);
+                if (hDist(p.position(), goal) < 3.0 && Math.abs(p.getY() - liftY) < 3.5) {
+                    releaseMovement(mc);
+                    rescueStep = 3;
+                    rescueAt = now;
+                    liftUseTick = 0;
+                    aim.retarget();
+                    return;
+                }
+                if (now - rescueSince > 90_000) {
+                    Chat.msg("Couldn't walk to the lift in 90 s (" + Planner.lastStats + ") - stopping.");
+                    stop(mc);
+                    return;
+                }
+                moving = true;
+                navigateTo(mc, p, now, List.of(BlockPos.containing(liftX, liftY, liftZ)), List.of());
+            }
+            case 3 -> { // click the Lift Operator until its menu is open
+                releaseMovement(mc);
+                if (mc.screen instanceof AbstractContainerScreen<?>) {
+                    rescueStep = 4;
+                    rescueAt = now;
+                    return;
+                }
+                Entity npc = findLiftNpc(mc, p);
+                if (npc == null) {
+                    if (now - rescueAt > 12_000) {
+                        Chat.msg("Can't find \"" + liftNpc + "\" near " + liftX + " " + liftY + " " + liftZ
+                                + " (/hunt lift npc <text>) - stopping.");
+                        stop(mc);
+                    }
+                    return;
+                }
+                float[] ang = anglesTo(p, centre(npc));
+                aim.setTarget(ang[0], ang[1], 500f, 1f);
+                boolean onIt = aim.settled(p, 4f) && mc.hitResult instanceof EntityHitResult ehr && ehr.getEntity() == npc;
+                if ((onIt || now - rescueAt > 3000) && liftUseTick++ % 20 == 0) { // retry every second
+                    mc.gameMode.interact(p, npc, InteractionHand.MAIN_HAND);
+                    p.swing(InteractionHand.MAIN_HAND);
+                }
+                if (now - rescueAt > 25_000) {
+                    Chat.msg("The lift menu never opened - stopping.");
+                    stop(mc);
+                }
+            }
+            case 4 -> { // click the diamond
+                if (!(mc.screen instanceof AbstractContainerScreen<?> cs)) {
+                    rescueStep = 3; // menu closed on us: open it again
+                    rescueAt = now;
+                    return;
+                }
+                if (now - rescueAt < 400) return; // let the server fill the menu
+                var menu = cs.getMenu();
+                int n = menu.slots.size() - 36; // the last 36 slots are our own inventory
+                for (int i = 0; i < n; i++) {
+                    if (menu.slots.get(i).getItem().is(Items.DIAMOND)) {
+                        mc.gameMode.handleInventoryMouseClick(menu.containerId, i, 0, ClickType.PICKUP, p);
+                        rescueStep = 5;
+                        rescueAt = now;
+                        return;
+                    }
+                }
+                if (now - rescueAt > 6000) {
+                    Chat.msg("No diamond in the lift menu - stopping.");
+                    p.closeContainer();
+                    stop(mc);
+                }
+            }
+            default -> { // clicked: close the menu and go back to hunting
+                if (now - rescueAt < 800) return;
+                if (mc.screen != null) p.closeContainer();
+                if (now - rescueAt < 1500) return;
+                Chat.msg("Lift taken - hunting again.");
+                lavaCount = 0;
+                moves.clear();
+                leg = null;
+                legCursor = null;
+                planDirty = true;
+                holeEndsAt = 0;
+                zoneGrace = now + 6000;
+                outChecks = 0;
+                int axe = findByName(p, axeName);
+                if (axe >= 0) p.getInventory().setSelectedSlot(axe);
+                setPhase(Phase.HUNT, now);
+            }
+        }
+    }
+
+    /** The NPC behind the "Lift Operator" name tag (name tags are armor stands; the NPC stands right there). */
+    private Entity findLiftNpc(Minecraft mc, LocalPlayer p) {
+        List<Entity> all = mc.level.getEntities((Entity) null, p.getBoundingBox().inflate(12));
+        String want = liftNpc.toLowerCase(Locale.ROOT);
+        Entity tag = null;
+        for (Entity e : all) {
+            var n = e.getCustomName();
+            if (n == null || !cleanName(n.getString()).toLowerCase(Locale.ROOT).contains(want)) continue;
+            if (e.getType() != EntityType.ARMOR_STAND) return e; // the NPC carries the name itself
+            if (tag == null || e.distanceToSqr(p) < tag.distanceToSqr(p)) tag = e;
+        }
+        if (tag == null) return null;
+        Entity best = null;
+        double bd = 9.0; // within 3 blocks of the tag
+        for (Entity e : all) {
+            if (e == p || e == tag || !(e instanceof LivingEntity) || e.getType() == EntityType.ARMOR_STAND) continue;
+            double d = e.distanceToSqr(tag.position());
+            if (d < bd) {
+                bd = d;
+                best = e;
+            }
+        }
+        return best;
     }
 
     private void setPhase(Phase ph, long now) {
@@ -845,7 +1019,7 @@ public class HuntController {
     }
 
     public String status() {
-        return (running ? "RUNNING " + phase : "stopped") + " | area=" + (areaOn ? "x " + areaX1 + ".." + areaX2 + ", z " + areaZ1 + ".." + areaZ2 + ", y " + areaY1 + ".." + areaY2 : "off") + " | zone=\"" + (zoneGuard ? zoneText : "off") + "\" in=" + zoneOk + " | hits=" + hits + " holes=" + holesPlaced + " missed=" + holeMisses + " holeTimer="
+        return (running ? "RUNNING " + phase : "stopped") + " | area=" + (areaOn ? "x " + areaX1 + ".." + areaX2 + ", z " + areaZ1 + ".." + areaZ2 + ", y " + areaY1 + ".." + areaY2 : "off") + " | lava=" + lavaCount + "/" + lavaLimit + " | zone=\"" + (zoneGuard ? zoneText : "off") + "\" in=" + zoneOk + " | hits=" + hits + " holes=" + holesPlaced + " missed=" + holeMisses + " holeTimer="
                 + (holeEndsAt > System.currentTimeMillis() ? String.format("%.1fs left", (holeEndsAt - System.currentTimeMillis()) / 1000.0) : "idle")
                 + " | zombies in view=" + lastCands.size() + " | mob=\"" + mobFilter + "\" axe=\"" + axeName
                 + "\" hole=\"" + holeName + "\" golden=" + golden;

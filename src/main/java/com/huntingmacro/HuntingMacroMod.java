@@ -140,6 +140,53 @@ public class HuntingMacroMod implements ClientModInitializer {
                         Chat.msg("Hitting the next zombie " + controller.holeLeadSec + "s before the black hole ends.");
                         return 1;
                     }))));
+            root.then(lit("lava")
+                    .executes(c -> {
+                        Chat.msg("Lava rescue " + (controller.lavaRescue ? "ON" : "OFF") + ": after more than "
+                                + controller.lavaLimit + " lava incidents -> /" + controller.rescueCmd + ", walk to "
+                                + controller.liftX + " " + controller.liftY + " " + controller.liftZ
+                                + ", click \"" + controller.liftNpc + "\", click the diamond.");
+                        return 1;
+                    })
+                    .then(lit("on").executes(c -> {
+                        controller.lavaRescue = true;
+                        Chat.msg("Lava rescue ON.");
+                        return 1;
+                    }))
+                    .then(lit("off").executes(c -> {
+                        controller.lavaRescue = false;
+                        Chat.msg("Lava rescue OFF.");
+                        return 1;
+                    }))
+                    .then(lit("limit").then(arg("n", IntegerArgumentType.integer(1, 20)).executes(c -> {
+                        controller.lavaLimit = IntegerArgumentType.getInteger(c, "n");
+                        Chat.msg("Rescue after more than " + controller.lavaLimit + " lava incidents.");
+                        return 1;
+                    }))));
+            root.then(lit("lift")
+                    .executes(c -> {
+                        Chat.msg("Lift at " + controller.liftX + " " + controller.liftY + " " + controller.liftZ
+                                + ", NPC \"" + controller.liftNpc + "\", warp \"" + controller.rescueCmd + "\"");
+                        return 1;
+                    })
+                    .then(lit("npc").then(arg("text", StringArgumentType.greedyString()).executes(c -> {
+                        controller.liftNpc = StringArgumentType.getString(c, "text").trim();
+                        Chat.msg("Lift NPC name: \"" + controller.liftNpc + "\"");
+                        return 1;
+                    })))
+                    .then(lit("warp").then(arg("cmd", StringArgumentType.greedyString()).executes(c -> {
+                        controller.rescueCmd = StringArgumentType.getString(c, "cmd").trim().replaceFirst("^/", "");
+                        Chat.msg("Rescue warp: /" + controller.rescueCmd);
+                        return 1;
+                    })))
+                    .then(arg("x", IntegerArgumentType.integer()).then(arg("y", IntegerArgumentType.integer())
+                            .then(arg("z", IntegerArgumentType.integer()).executes(c -> {
+                                controller.liftX = IntegerArgumentType.getInteger(c, "x");
+                                controller.liftY = IntegerArgumentType.getInteger(c, "y");
+                                controller.liftZ = IntegerArgumentType.getInteger(c, "z");
+                                Chat.msg("Lift spot: " + controller.liftX + " " + controller.liftY + " " + controller.liftZ);
+                                return 1;
+                            })))));
             root.then(lit("golden")
                     .executes(c -> {
                         Chat.msg("Golden axe step: " + controller.golden + " (/hunt golden use|hit|off)");
@@ -253,6 +300,8 @@ public class HuntingMacroMod implements ClientModInitializer {
         Chat.msg(" /hunt zone [off|on|text] - stay inside this area (sidebar text, default \"Diamond Reserve\"); if you leave, walk back to where you were 3 moves ago");
         Chat.msg(" /hunt area on|off|<x1> <z1> <x2> <z2> <y1> <y2> - only hunt zombies inside this box (default x -44..28, z -27..56, y 36..40)");
         Chat.msg(" /hunt hole time <s> | lead <s> - seconds a black hole needs to finish (default 5) and how long before that the next zombie is hit (default 0.5)");
+        Chat.msg(" /hunt lava [on|off|limit <n>] - after more than 3 lava incidents: /warp deep, walk to the lift, click the Lift Operator, click the diamond");
+        Chat.msg(" /hunt lift [<x> <y> <z> | npc <text> | warp <cmd>] - lift spot (default 45 150 15), NPC name and warp command");
         Chat.msg(" /hunt range <blocks> - how far to look for zombies (default 80; pathing reaches ~44)");
         Chat.msg(" /hunt warp <command|off> - command to run when stuck or nothing to hunt (e.g. warp dr)");
         Chat.msg(" /hunt path - last pathfinder stats, /hunt highlight - toggle overlay, /hunt parkour on|off");
