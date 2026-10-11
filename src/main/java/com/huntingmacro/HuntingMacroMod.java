@@ -174,8 +174,8 @@ public class HuntingMacroMod implements ClientModInitializer {
         Chat.msg(" /hunt start | stop | status");
         Chat.msg(" /hunt scan - list zombies and name tags around you (find the right mob name)");
         Chat.msg(" /hunt mob <text|any> - name tag text of the zombies to hunt (default \"Miner\")");
-        Chat.msg(" /hunt axe <text> - hotbar item name of the prime hunt axe (default \"Prime\")");
-        Chat.msg(" /hunt golden use|hit|off - what to do with the golden axe (default use = right click)");
+        Chat.msg(" /hunt axe <text> - hotbar item name of the prime hunt axe (default \"Prime Huntaxe\")");
+        Chat.msg(" /hunt golden use|hit|off - what to do with the golden axe (default off)");
         Chat.msg(" /hunt hole name <text> | radius <blocks> | seconds <s> - black hole item, area and lifetime");
         Chat.msg(" /hunt range <blocks> - how far to look for zombies (default 40)");
         Chat.msg(" /hunt warp <command|off> - command to run when stuck or nothing to hunt (e.g. warp dr)");

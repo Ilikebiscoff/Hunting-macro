@@ -81,9 +81,9 @@ public class HuntController {
 
     // ---- settings (/hunt ...) ---------------------------------------------------------------
     public volatile String mobFilter = "Miner";
-    public volatile String axeName = "Prime";
-    public volatile String holeName = "Black Hole";
-    public volatile Golden golden = Golden.USE;
+    public volatile String axeName = "Prime Huntaxe";
+    public volatile String holeName = "Medium Pocket Black Hole";
+    public volatile Golden golden = Golden.OFF;
     public volatile double holeRadius = 7.0;
     public volatile int holeSeconds = 10;
     public volatile double range = 40.0;
@@ -101,6 +101,8 @@ public class HuntController {
     private int wait, stepTicks;
     private long phaseSince;
     private Entity current;
+    /** Where the zombie stood when we hit it: the black hole goes down here. */
+    private Vec3 holeAt;
 
     /** entity id -> time we hit it (never hit twice) or gave up on it. */
     private final Map<Integer, Long> tagged = new HashMap<>();
@@ -345,8 +347,9 @@ public class HuntController {
             mc.gameMode.attack(p, current);
             p.swing(InteractionHand.MAIN_HAND);
             tagged.put(current.getId(), now);
+            holeAt = current.position();
             hits++;
-            wait = 3 + rand.nextInt(4);
+            wait = 1 + rand.nextInt(2); // place the black hole right away
             setPhase(Phase.GOLDEN, now);
         } else if (now - phaseSince > HIT_TIMEOUT_MS) {
             tagged.put(current.getId(), now - TAG_MS + 8000); // retry in 8 s
@@ -411,12 +414,15 @@ public class HuntController {
             BlockHitResult bhr = (BlockHitResult) mc.hitResult;
             mc.gameMode.useItemOn(p, InteractionHand.MAIN_HAND, bhr);
             p.swing(InteractionHand.MAIN_HAND);
-            holes.add(new Hole(p.position(), now + holeSeconds * 1000L));
+            holes.add(new Hole(holeAt != null ? holeAt : p.position(), now + holeSeconds * 1000L));
             holesPlaced++;
             wait = 4 + rand.nextInt(4);
             finishCycle(p, now);
-        } else if (now - phaseSince > 4000) {
-            Chat.msg("Couldn't aim at the ground to place the black hole; skipping it.");
+        } else if (now - phaseSince > 1500) { // can't aim at the ground: just use the item
+            mc.gameMode.useItem(p, InteractionHand.MAIN_HAND);
+            p.swing(InteractionHand.MAIN_HAND);
+            holes.add(new Hole(holeAt != null ? holeAt : p.position(), now + holeSeconds * 1000L));
+            holesPlaced++;
             finishCycle(p, now);
         }
     }

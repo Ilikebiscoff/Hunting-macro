@@ -5,15 +5,15 @@ Hypixel SkyBlock:
 
 1. pathfinds to the nearest zombie (background A*/Dijkstra planner, speed-scaled path follower, human-like camera)
 2. hits it **once** with the prime hunt axe
-3. swaps to the golden axe and uses it (right-click by default; `/hunt golden hit|off` to change)
-4. looks at the ground and places the black hole, swaps back to the prime axe
+3. (optional, off by default) golden axe step: `/hunt golden use|hit`
+4. immediately places/uses the Medium Pocket Black Hole where the zombie stood, swaps back to the Prime Huntaxe
 5. zombies standing inside the fresh black hole are left alone; it paths to the next one
 
-Needs in the **hotbar**: the prime hunt axe, a golden axe, the black hole item.
+Needs in the **hotbar**: the Prime Huntaxe and the Medium Pocket Black Hole (equip the wither skeleton pet: its double hit is passive).
 
 ## Commands
 `/hunt start | stop | status`, `/hunt scan` (shows zombie/name-tag text around you),
-`/hunt mob <text|any>` (default `Miner`), `/hunt axe <text>` (default `Prime`),
+`/hunt mob <text|any>` (default `Miner`), `/hunt axe <text>` (default `Prime Huntaxe`),
 `/hunt golden use|hit|off`, `/hunt hole name|radius|seconds`, `/hunt range <blocks>`,
 `/hunt warp <command|off>`, `/hunt path`, `/hunt highlight`, `/hunt parkour on|off`.
 
