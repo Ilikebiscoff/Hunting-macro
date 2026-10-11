@@ -620,6 +620,20 @@ public class HuntController {
                     leg == null ? "no path" : "walking", Planner.lastStats));
         }
 
+        // reached this hop (but it isn't the lift): don't come back here, pick the next one
+        if (hopTarget != null) {
+            Vec3 hc = hopTarget.getCenter();
+            if (hDist(p.position(), hc) < 3.5 && Math.abs(p.getY() - hopTarget.getY()) < 3.5) {
+                Chat.msg("Lift walk: reached " + hopTarget.toShortString() + ", " + String.format(Locale.ROOT, "%.0f", dist)
+                        + " blocks from the lift, picking the next spot.");
+                hopFailed.add(hopTarget);
+                hopTarget = null;
+                leg = null;
+                legCursor = null;
+                rescueNoLeg = 0;
+            }
+        }
+
         // this hop failed (the planner found no way to it): remember it and pick another
         if (leg == null && hopTarget != null && now - hopAsked > 1500
                 && (Planner.lastStats.startsWith("no reachable") || Planner.lastStats.startsWith("no mushrooms"))) {
@@ -661,8 +675,8 @@ public class HuntController {
         int px = (int) Math.floor(pos.x), py = (int) Math.floor(pos.y), pz = (int) Math.floor(pos.z);
         BlockPos best = null;
         double bd = Double.MAX_VALUE;
-        for (int x = px - 42; x <= px + 42; x++)
-            for (int z = pz - 42; z <= pz + 42; z++)
+        for (int x = px - 42; x <= px + 42; x += 2)
+            for (int z = pz - 42; z <= pz + 42; z += 2)
                 for (int y = py - 14; y <= py + 14; y++) {
                     if (!g.standable(x, y, z)) continue;
                     double d = Math.hypot(goal.x - (x + 0.5), goal.z - (z + 0.5)) + 1.5 * Math.abs(liftY - y);
