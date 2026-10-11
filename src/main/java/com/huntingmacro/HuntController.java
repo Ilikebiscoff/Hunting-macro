@@ -49,6 +49,8 @@ public class HuntController {
     /** Eye to hitbox centre distance at which we stop walking and swing. */
     private static final double HIT_DIST = 2.9;
     private static final long HIT_TIMEOUT_MS = 2500;
+    /** The walk grid is 96 wide: zombies further out than this can be seen (ESP) but not pathed to yet. */
+    private static final double PLAN_RADIUS = 44.0;
     private static final long STUCK_MS = 8000;
     private static final double STUCK_RADIUS = 3.0;
 
@@ -85,7 +87,7 @@ public class HuntController {
     public volatile String axeName = "Prime Huntaxe";
     public volatile String holeName = "Medium Pocket Black Hole";
     public volatile Golden golden = Golden.OFF;
-    public volatile double range = 40.0;
+    public volatile double range = 80.0;
     /** Sidebar text of the hunting area; leaving it sends us back to where we were 3 moves ago. */
     public volatile String zoneText = "Diamond Reserve";
     public volatile boolean zoneGuard = true;
@@ -250,7 +252,7 @@ public class HuntController {
 
     /** Untouched filter-matching zombies in range that are not standing in a black hole, nearest first. */
     private List<Entity> candidates(Minecraft mc, LocalPlayer p, long now) {
-        AABB box = p.getBoundingBox().inflate(range, Math.min(range, 20), range);
+        AABB box = p.getBoundingBox().inflate(range, Math.min(range, 30), range);
         List<Entity> all = mc.level.getEntities((Entity) null, box);
         String filter = mobFilter.toLowerCase(Locale.ROOT);
         List<Entity> out = new ArrayList<>();
@@ -517,11 +519,14 @@ public class HuntController {
 
     private void navigate(Minecraft mc, LocalPlayer p, long now, List<Entity> cands) {
         List<BlockPos> ts = new ArrayList<>();
+        List<Entity> reachable = new ArrayList<>();
         for (Entity e : cands) {
+            if (Math.abs(e.getX() - p.getX()) > PLAN_RADIUS || Math.abs(e.getZ() - p.getZ()) > PLAN_RADIUS) continue;
+            reachable.add(e);
             BlockPos bp = BlockPos.containing(e.getX(), e.getY(), e.getZ());
             if (!blacklist.containsKey(bp)) ts.add(bp);
         }
-        navigateTo(mc, p, now, ts, cands);
+        navigateTo(mc, p, now, ts, reachable);
     }
 
     private void navigateTo(Minecraft mc, LocalPlayer p, long now, List<BlockPos> targets, List<Entity> cands) {
@@ -702,7 +707,7 @@ public class HuntController {
 
     private void updateEsp(Minecraft mc) {
         LocalPlayer p = mc.player;
-        List<Entity> all = mc.level.getEntities((Entity) null, p.getBoundingBox().inflate(range, Math.min(range, 20), range));
+        List<Entity> all = mc.level.getEntities((Entity) null, p.getBoundingBox().inflate(range, Math.min(range, 30), range));
         String filter = mobFilter.toLowerCase(Locale.ROOT);
         List<Esp> out = new ArrayList<>();
         for (Entity e : all) {

@@ -129,7 +129,7 @@ public class HuntingMacroMod implements ClientModInitializer {
                         Chat.msg("Zone guard " + (controller.zoneGuard ? "ON (" + controller.zoneText + ")" : "OFF"));
                         return 1;
                     })));
-            root.then(lit("range").then(arg("blocks", DoubleArgumentType.doubleArg(5, 80)).executes(c -> {
+            root.then(lit("range").then(arg("blocks", DoubleArgumentType.doubleArg(5, 150)).executes(c -> {
                 controller.range = DoubleArgumentType.getDouble(c, "blocks");
                 Chat.msg("Search range " + controller.range + " blocks.");
                 return 1;
@@ -185,7 +185,7 @@ public class HuntingMacroMod implements ClientModInitializer {
         Chat.msg(" /hunt golden use|hit|off - what to do with the golden axe (default off)");
         Chat.msg(" /hunt hole name <text> - black hole item name");
         Chat.msg(" /hunt zone [off|on|text] - stay inside this area (sidebar text, default \"Diamond Reserve\"); if you leave, walk back to where you were 3 moves ago");
-        Chat.msg(" /hunt range <blocks> - how far to look for zombies (default 40)");
+        Chat.msg(" /hunt range <blocks> - how far to look for zombies (default 80; pathing reaches ~44)");
         Chat.msg(" /hunt warp <command|off> - command to run when stuck or nothing to hunt (e.g. warp dr)");
         Chat.msg(" /hunt path - last pathfinder stats, /hunt highlight - toggle overlay, /hunt parkour on|off");
     }
