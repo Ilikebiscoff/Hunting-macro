@@ -165,7 +165,7 @@ public class HuntingMacroMod implements ClientModInitializer {
     private static void help() {
         Chat.msg("Commands:");
         Chat.msg(" /hunt start | stop | status");
-        Chat.msg(" /hunt items - list your hotbar item names\");
+        Chat.msg(" /hunt items - list your hotbar item names");
         Chat.msg(" /hunt scan - list zombies and name tags around you (find the right mob name)");
         Chat.msg(" /hunt mob <text|any> - name tag text of the zombies to hunt (default \"Miner\")");
         Chat.msg(" /hunt axe <text> - hotbar item name of the prime hunt axe (default \"Prime Huntaxe\")");
