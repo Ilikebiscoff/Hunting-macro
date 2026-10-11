@@ -102,12 +102,16 @@ public class HuntController {
     public volatile String holeName = "Medium Pocket Black Hole";
     public volatile Golden golden = Golden.OFF;
     public volatile double range = 80.0;
+    /** After this many kills the grey (already hit) zombies become targets again; 0 = never. */
+    public volatile int refreshEvery = 5;
     /** More than this many lava incidents -> warp out and take the lift operator back to the hunting level. */
     public volatile boolean lavaRescue = true;
     public volatile int lavaLimit = 3;
     public volatile String rescueCmd = "warp deep";
     public volatile int liftX = 45, liftY = 150, liftZ = 15;
     public volatile String liftNpc = "Lift Operator";
+    /** Sidebar text meaning "already in Deep Caverns": no lift needed, just hunt (empty = never skip). */
+    public volatile String deepText = "Deep Caverns";
     /** How long one black hole needs to fully suck an enemy in (s), and how long before that we hit the next one. */
     public volatile double holeTimeSec = 5.0;
     public volatile double holeLeadSec = 0.5;
@@ -150,6 +154,8 @@ public class HuntController {
     private long holeEndsAt;
     /** Zombie we hit just before the hole, and the holes still waiting to see their zombie get sucked in. */
     private Entity lastHit;
+    private final List<Entity> hitZombies = new ArrayList<>();
+    private int killsSinceRefresh, kills;
     private long hitAt, holeUseStart, vanishAt;
     private boolean watchBack;
     private record PendingHole(Entity zombie, long placedAt) {}
@@ -262,6 +268,33 @@ public class HuntController {
      * Under 1 s means our own hit killed it, over 40 s is a fluke; both are ignored. The first sample replaces the
      * guess, later ones are blended in (70% old, 30% new).
      */
+    /** A zombie we hit that is now dead (not just out of range) is a kill; every N kills the grey ones come back. */
+    private void countKills() {
+        if (hitZombies.isEmpty()) return;
+        var it = hitZombies.iterator();
+        while (it.hasNext()) {
+            Entity z = it.next();
+            if (z.isAlive()) continue;
+            it.remove();
+            Entity.RemovalReason why = z.getRemovalReason();
+            if (why == Entity.RemovalReason.UNLOADED_TO_CHUNK || why == Entity.RemovalReason.UNLOADED_WITH_PLAYER
+                    || why == Entity.RemovalReason.CHANGED_DIMENSION) continue;
+            kills++;
+            killsSinceRefresh++;
+            if (refreshEvery > 0 && killsSinceRefresh >= refreshEvery) refreshGrey(killsSinceRefresh + " kills");
+        }
+        if (hitZombies.size() > 200) hitZombies.subList(0, hitZombies.size() - 100).clear();
+    }
+
+    /** Forget which zombies were hit/skipped so every zombie shown by the ESP can be hunted again. */
+    private void refreshGrey(String why) {
+        killsSinceRefresh = 0;
+        if (tagged.isEmpty()) return;
+        int n = tagged.size();
+        tagged.clear();
+        Chat.msg("Refreshed " + n + " grey zombies (" + why + "): they can be hit again.");
+    }
+
     private static double blend(double old, double sample) {
         return old <= 0 ? sample : old * 0.7 + sample * 0.3;
     }
@@ -379,6 +412,7 @@ public class HuntController {
             return;
         }
         learnHoles(p, now);
+        countKills();
         tagged.values().removeIf(t -> now - t > TAG_MS);
         avoid.values().removeIf(t -> now - t > AVOID_MS);
         blacklist.values().removeIf(t -> now - t > BLACKLIST_MS);
@@ -597,6 +631,8 @@ public class HuntController {
     private BlockPos hopTarget;
     private long hopAsked, rescueNoLeg, rescueReport;
 
+    private long deepCheck;
+
     private void liftWalk(Minecraft mc, LocalPlayer p, long now) {
         Vec3 goal = new Vec3(liftX + 0.5, liftY, liftZ + 0.5);
         double dist = hDist(p.position(), goal);
@@ -608,24 +644,65 @@ public class HuntController {
             aim.retarget();
             return;
         }
+        // already in Deep Caverns (sidebar location): no lift needed, hunt the closest zombie
+        if (!deepText.isBlank() && now - deepCheck > 1000) {
+            deepCheck = now;
+            if (Boolean.TRUE.equals(Zone.contains(mc, deepText))) {
+                Chat.msg("Location is \"" + deepText + "\" - skipping the lift, hunting the closest zombie.");
+                endRescue(mc, p, now);
+                return;
+            }
+        }
         if (now - rescueSince > 120_000) {
             Chat.msg("Couldn't walk to the lift in 120 s (" + Planner.lastStats + ") - stopping.");
             stop(mc);
             return;
         }
+        hopWalk(mc, p, now, goal, "Lift walk");
+    }
+
+    /** Leaves the rescue (lift done or skipped) and goes back to hunting with a clean slate. */
+    private void endRescue(Minecraft mc, LocalPlayer p, long now) {
+        lavaCount = 0;
+        moves.clear();
+        leg = null;
+        legCursor = null;
+        planDirty = true;
+        holeEndsAt = 0;
+        zoneGrace = now + 6000;
+        outChecks = 0;
+        resetHops();
+        int axe = findByName(p, axeName);
+        if (axe >= 0) p.getInventory().setSelectedSlot(axe);
+        setPhase(Phase.HUNT, now);
+    }
+
+    private void resetHops() {
+        hopFailed.clear();
+        hopTarget = null;
+        rescueNoLeg = 0;
+        rescueReport = 0;
+    }
+
+    /**
+     * Walks toward {@code goal} (any spot, even outside the ~45 block path map) in hops: each hop is the standable
+     * cell nearest to the goal that the planner can reach. Finished hops are never revisited.
+     */
+    private void hopWalk(Minecraft mc, LocalPlayer p, long now, Vec3 goal, String label) {
+        double dist = hDist(p.position(), goal);
         if (now - rescueReport > 5000) { // progress report, so a failure can be diagnosed
             rescueReport = now;
-            Chat.msg(String.format(Locale.ROOT, "Lift walk: %.0f blocks to go (dy %.0f), target %s, %s | planner: %s",
-                    dist, liftY - p.getY(), hopTarget == null ? "none" : hopTarget.toShortString(),
+            Chat.msg(String.format(Locale.ROOT, "%s: %.0f blocks to go (dy %.0f), target %s, %s | planner: %s",
+                    label, dist, goal.y - p.getY(), hopTarget == null ? "none" : hopTarget.toShortString(),
                     leg == null ? "no path" : "walking", Planner.lastStats));
         }
 
-        // reached this hop (but it isn't the lift): don't come back here, pick the next one
+        // reached this hop (but it isn't the goal): don't come back here, pick the next one
         if (hopTarget != null) {
             Vec3 hc = hopTarget.getCenter();
             if (hDist(p.position(), hc) < 3.5 && Math.abs(p.getY() - hopTarget.getY()) < 3.5) {
-                Chat.msg("Lift walk: reached " + hopTarget.toShortString() + ", " + String.format(Locale.ROOT, "%.0f", dist)
-                        + " blocks from the lift, picking the next spot.");
+                Chat.msg(label + ": reached " + hopTarget.toShortString() + ", " + String.format(Locale.ROOT, "%.0f", dist)
+                        + " blocks to go, picking the next spot.");
                 hopFailed.add(hopTarget);
                 hopTarget = null;
                 leg = null;
@@ -647,7 +724,7 @@ public class HuntController {
             lastPlanRequest = 0;
         }
 
-        if (hopTarget == null) { // no map yet / nothing standable: blind steer toward the lift
+        if (hopTarget == null) { // no map yet / nothing standable: blind steer toward the goal
             blindWalk(mc, p, goal);
             return;
         }
@@ -670,8 +747,8 @@ public class HuntController {
         if (g == null) return null;
         Vec3 pos = p.position();
         double direct = hDist(pos, goal);
-        if (hopFailed.isEmpty() && direct <= 30 && Math.abs(liftY - pos.y) <= 12)
-            return BlockPos.containing(liftX, liftY, liftZ); // close enough to plan straight to it
+        if (hopFailed.isEmpty() && direct <= 30 && Math.abs(goal.y - pos.y) <= 12)
+            return BlockPos.containing(goal.x, goal.y, goal.z); // close enough to plan straight to it
         int px = (int) Math.floor(pos.x), py = (int) Math.floor(pos.y), pz = (int) Math.floor(pos.z);
         BlockPos best = null;
         double bd = Double.MAX_VALUE;
@@ -679,7 +756,7 @@ public class HuntController {
             for (int z = pz - 42; z <= pz + 42; z += 2)
                 for (int y = py - 14; y <= py + 14; y++) {
                     if (!g.standable(x, y, z)) continue;
-                    double d = Math.hypot(goal.x - (x + 0.5), goal.z - (z + 0.5)) + 1.5 * Math.abs(liftY - y);
+                    double d = Math.hypot(goal.x - (x + 0.5), goal.z - (z + 0.5)) + 1.5 * Math.abs(goal.y - y);
                     if (d >= bd) continue;
                     boolean bad = false;
                     for (BlockPos f : hopFailed)
@@ -865,9 +942,19 @@ public class HuntController {
             else if (now - idleSince >= idleWarpMs && now - lastWarp >= 20_000) {
                 doWarp(mc, p, now, "No zombies to hunt");
             }
+            // grey (already hit) zombies are all that's left: wake them up instead of standing around
+            if (idleSince != 0 && now - idleSince > 3000) {
+                for (Esp e : esp) if (e.kind() == 2) { refreshGrey("only already-hit zombies left"); break; }
+            }
+            // none loaded: head for the scan area so they come into view
+            if (areaOn && idleSince != 0 && now - idleSince > 2000) {
+                Vec3 c = new Vec3((areaX1 + areaX2) / 2.0 + 0.5, (areaY1 + areaY2) / 2.0, (areaZ1 + areaZ2) / 2.0 + 0.5);
+                if (hDist(p.position(), c) > 12) hopWalk(mc, p, now, c, "Walking to the scan area");
+            }
             return;
         }
         idleSince = 0;
+        if (hopTarget != null && p.getBoundingBox().inflate(PLAN_RADIUS).contains(cands.get(0).position())) resetHops();
 
         // close enough with a clear line: stop and hit it
         Entity near = cands.get(0);
@@ -931,6 +1018,7 @@ public class HuntController {
             p.swing(InteractionHand.MAIN_HAND);
             tagged.put(current.getId(), now);
             lastHit = current;
+            hitZombies.add(current);
             hitAt = now;
             hits++;
             wait = 0; // black hole right away
@@ -1123,6 +1211,11 @@ public class HuntController {
             BlockPos bp = BlockPos.containing(e.getX(), e.getY(), e.getZ());
             if (!blacklist.containsKey(bp)) ts.add(bp);
         }
+        if (reachable.isEmpty() && !cands.isEmpty()) { // zombies exist but all are beyond the path map: hop toward the closest
+            hopWalk(mc, p, now, cands.get(0).position(), "Walking to zombie");
+            return;
+        }
+        if (hopTarget != null) resetHops(); // back to normal pathing
         navigateTo(mc, p, now, ts, reachable);
     }
 
@@ -1247,6 +1340,7 @@ public class HuntController {
         if (!zoneGuard || zoneText.isBlank() || now < zoneGrace || ++zoneTick % 10 != 0) return false;
         Boolean in = Zone.contains(mc, zoneText);
         if (in == null) return false; // loading screen / no SkyBlock sidebar: can't tell
+        if (!in && !deepText.isBlank() && Boolean.TRUE.equals(Zone.contains(mc, deepText))) in = true; // Deep Caverns counts
         zoneOk = in;
         if (in) {
             outChecks = 0;
@@ -1314,7 +1408,7 @@ public class HuntController {
     }
 
     public String status() {
-        return (running ? "RUNNING " + phase : "stopped") + " | area=" + (areaOn ? "x " + areaX1 + ".." + areaX2 + ", z " + areaZ1 + ".." + areaZ2 + ", y " + areaY1 + ".." + areaY2 : "off") + " | lava=" + lavaCount + "/" + lavaLimit + " | zone=\"" + (zoneGuard ? zoneText : "off") + "\" in=" + zoneOk + " | hits=" + hits + " holes=" + holesPlaced + " missed=" + holeMisses + " holeTime=" + String.format(Locale.ROOT, "%.1fs", holeTimeSec) + (holeAuto ? " (auto, " + holeSamples + " samples)" : " (manual)") + " learned[hit->hole=" + String.format(Locale.ROOT, "%.2f", hitToHoleSec) + "s register=" + String.format(Locale.ROOT, "%.2f", useLatencySec) + "s cooldown=" + String.format(Locale.ROOT, "%.1f", cooldownSec) + "s lead=" + String.format(Locale.ROOT, "%.2f", holeLeadSec) + "s n=" + timingSamples + "]" + " holeTimer="
+        return (running ? "RUNNING " + phase : "stopped") + " | area=" + (areaOn ? "x " + areaX1 + ".." + areaX2 + ", z " + areaZ1 + ".." + areaZ2 + ", y " + areaY1 + ".." + areaY2 : "off") + " | lava=" + lavaCount + "/" + lavaLimit + " | zone=\"" + (zoneGuard ? zoneText : "off") + "\" in=" + zoneOk + " | hits=" + hits + " holes=" + holesPlaced + " missed=" + holeMisses + " holeTime=" + String.format(Locale.ROOT, "%.1fs", holeTimeSec) + (holeAuto ? " (auto, " + holeSamples + " samples)" : " (manual)") + " learned[hit->hole=" + String.format(Locale.ROOT, "%.2f", hitToHoleSec) + "s register=" + String.format(Locale.ROOT, "%.2f", useLatencySec) + "s cooldown=" + String.format(Locale.ROOT, "%.1f", cooldownSec) + "s lead=" + String.format(Locale.ROOT, "%.2f", holeLeadSec) + "s n=" + timingSamples + "]" + " kills=" + kills + " holeTimer="
                 + (holeEndsAt > System.currentTimeMillis() ? String.format("%.1fs left", (holeEndsAt - System.currentTimeMillis()) / 1000.0) : "idle")
                 + " | zombies in view=" + lastCands.size() + " | mob=\"" + mobFilter + "\" axe=\"" + axeName
                 + "\" hole=\"" + holeName + "\" golden=" + golden;

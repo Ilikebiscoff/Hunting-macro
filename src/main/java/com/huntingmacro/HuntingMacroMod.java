@@ -202,6 +202,19 @@ public class HuntingMacroMod implements ClientModInitializer {
                                 + ", NPC \"" + controller.liftNpc + "\", warp \"" + controller.rescueCmd + "\"");
                         return 1;
                     })
+                    .then(lit("deep")
+                            .executes(c -> {
+                                Chat.msg("If the sidebar location says \"" + controller.deepText
+                                        + "\" the lift is skipped and the closest zombie is hunted (/hunt lift deep <text|off>)");
+                                return 1;
+                            })
+                            .then(arg("text", StringArgumentType.greedyString()).executes(c -> {
+                                String t = StringArgumentType.getString(c, "text").trim();
+                                controller.deepText = t.equalsIgnoreCase("off") ? "" : t;
+                                Chat.msg(controller.deepText.isEmpty() ? "Deep Caverns skip OFF."
+                                        : "Skipping the lift when the sidebar says \"" + controller.deepText + "\".");
+                                return 1;
+                            })))
                     .then(lit("go")
                             .executes(c -> {
                                 controller.testLift(mc, false);
@@ -229,6 +242,18 @@ public class HuntingMacroMod implements ClientModInitializer {
                                 Chat.msg("Lift spot: " + controller.liftX + " " + controller.liftY + " " + controller.liftZ);
                                 return 1;
                             })))));
+            root.then(lit("refresh")
+                    .executes(c -> {
+                        Chat.msg("Grey (already hit) zombies come back every " + controller.refreshEvery
+                                + " kills (/hunt refresh <n>, 0 = never)");
+                        return 1;
+                    })
+                    .then(arg("n", IntegerArgumentType.integer(0, 100)).executes(c -> {
+                        controller.refreshEvery = IntegerArgumentType.getInteger(c, "n");
+                        Chat.msg(controller.refreshEvery == 0 ? "Grey zombies are never refreshed."
+                                : "Grey zombies come back every " + controller.refreshEvery + " kills.");
+                        return 1;
+                    })));
             root.then(lit("golden")
                     .executes(c -> {
                         Chat.msg("Golden axe step: " + controller.golden + " (/hunt golden use|hit|off)");
@@ -344,6 +369,7 @@ public class HuntingMacroMod implements ClientModInitializer {
         Chat.msg(" /hunt hole auto [on|off|reset] - learn the black hole time from real holes (default ON, saved), /hunt hole time <s> | lead <s> - seconds a black hole needs to finish (default 5) and how long before that the next zombie is hit (default 0.5)");
         Chat.msg(" /hunt lava [on|off|limit <n>] - after more than 3 lava incidents: /warp deep, walk to the lift, click the Lift Operator, click the diamond");
         Chat.msg(" /hunt lift go [warp] (test the lift trip now) | lift [<x> <y> <z> | npc <text> | warp <cmd>] - lift spot (default 45 150 15), NPC name and warp command");
+        Chat.msg(" /hunt refresh <n> - every n kills (default 5) the grey, already-hit zombies become targets again; lift deep <text|off> - skip the lift when the sidebar says Deep Caverns");
         Chat.msg(" /hunt range <blocks> - how far to look for zombies (default 80; pathing reaches ~44)");
         Chat.msg(" /hunt warp <command|off> - command to run when stuck or nothing to hunt (e.g. warp dr)");
         Chat.msg(" /hunt path - last pathfinder stats, /hunt highlight - toggle overlay, /hunt parkour on|off");
