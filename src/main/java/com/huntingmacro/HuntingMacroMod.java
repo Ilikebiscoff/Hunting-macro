@@ -96,23 +96,12 @@ public class HuntingMacroMod implements ClientModInitializer {
                     })));
             root.then(lit("hole")
                     .executes(c -> {
-                        Chat.msg("Black hole = hotbar item whose name contains \"" + controller.holeName
-                                + "\", radius " + controller.holeRadius + ", lasts " + controller.holeSeconds + "s");
+                        Chat.msg("Black hole = hotbar item whose name contains \"" + controller.holeName + "\"");
                         return 1;
                     })
                     .then(lit("name").then(arg("text", StringArgumentType.greedyString()).executes(c -> {
                         controller.holeName = StringArgumentType.getString(c, "text").trim();
                         Chat.msg("Black hole item name: \"" + controller.holeName + "\"");
-                        return 1;
-                    })))
-                    .then(lit("radius").then(arg("blocks", DoubleArgumentType.doubleArg(1, 30)).executes(c -> {
-                        controller.holeRadius = DoubleArgumentType.getDouble(c, "blocks");
-                        Chat.msg("Zombies within " + controller.holeRadius + " blocks of a black hole are skipped.");
-                        return 1;
-                    })))
-                    .then(lit("seconds").then(arg("s", IntegerArgumentType.integer(1, 120)).executes(c -> {
-                        controller.holeSeconds = IntegerArgumentType.getInteger(c, "s");
-                        Chat.msg("A black hole is assumed to last " + controller.holeSeconds + "s.");
                         return 1;
                     }))));
             root.then(lit("golden")
@@ -176,7 +165,7 @@ public class HuntingMacroMod implements ClientModInitializer {
         Chat.msg(" /hunt mob <text|any> - name tag text of the zombies to hunt (default \"Miner\")");
         Chat.msg(" /hunt axe <text> - hotbar item name of the prime hunt axe (default \"Prime Huntaxe\")");
         Chat.msg(" /hunt golden use|hit|off - what to do with the golden axe (default off)");
-        Chat.msg(" /hunt hole name <text> | radius <blocks> | seconds <s> - black hole item, area and lifetime");
+        Chat.msg(" /hunt hole name <text> - black hole item name");
         Chat.msg(" /hunt range <blocks> - how far to look for zombies (default 40)");
         Chat.msg(" /hunt warp <command|off> - command to run when stuck or nothing to hunt (e.g. warp dr)");
         Chat.msg(" /hunt path - last pathfinder stats, /hunt highlight - toggle overlay, /hunt parkour on|off");

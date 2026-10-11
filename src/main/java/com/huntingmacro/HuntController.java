@@ -84,8 +84,6 @@ public class HuntController {
     public volatile String axeName = "Prime Huntaxe";
     public volatile String holeName = "Medium Pocket Black Hole";
     public volatile Golden golden = Golden.OFF;
-    public volatile double holeRadius = 7.0;
-    public volatile int holeSeconds = 10;
     public volatile double range = 40.0;
     /** Command run when stuck / nothing to hunt for {@link #idleWarpMs} (empty = just re-plan). */
     public volatile String warpCmd = "";
@@ -103,6 +101,7 @@ public class HuntController {
     private Entity current;
     /** Where the zombie stood when we hit it: the black hole goes down here. */
     private Vec3 holeAt;
+    private int holeBefore = -1;
 
     /** entity id -> time we hit it (never hit twice) or gave up on it. */
     private final Map<Integer, Long> tagged = new HashMap<>();
@@ -216,6 +215,7 @@ public class HuntController {
 
     private void setPhase(Phase ph, long now) {
         phase = ph;
+        holeBefore = -1;
         phaseSince = now;
         stepTicks = 0;
     }
@@ -230,18 +230,12 @@ public class HuntController {
         List<Entity> out = new ArrayList<>();
         for (Entity e : all) {
             if (e.getType() != EntityType.ZOMBIE || !e.isAlive() || tagged.containsKey(e.getId())) continue;
-            if (inHole(e.position())) continue;
             if (!filter.isEmpty() && !nameMatches(e, all, filter)) continue;
             out.add(e);
         }
         Vec3 me = p.position();
         out.sort((a, b) -> Double.compare(a.distanceToSqr(me), b.distanceToSqr(me)));
         return out;
-    }
-
-    private boolean inHole(Vec3 pos) {
-        for (Hole h : holes) if (h.pos.distanceTo(pos) <= holeRadius) return true;
-        return false;
     }
 
     /** SkyBlock mobs carry their name on a floating armor stand just above them (or on the mob itself). */
@@ -404,27 +398,31 @@ public class HuntController {
         if (wait-- > 0) return;
         if (p.getInventory().getSelectedSlot() != slot) {
             p.getInventory().setSelectedSlot(slot);
-            wait = 3 + rand.nextInt(4);
+            holeBefore = p.getInventory().getItem(slot).getCount();
+            wait = 2 + rand.nextInt(3);
             return;
         }
-        // look at the ground a step in front of us
-        aim.setTarget(p.getYRot(), 70f, 500f, 1f);
-        boolean onGround = mc.hitResult instanceof BlockHitResult bh && bh.getType() == HitResult.Type.BLOCK;
-        if (aim.settled(p, 4f) && onGround) {
-            BlockHitResult bhr = (BlockHitResult) mc.hitResult;
-            mc.gameMode.useItemOn(p, InteractionHand.MAIN_HAND, bhr);
-            p.swing(InteractionHand.MAIN_HAND);
-            holes.add(new Hole(holeAt != null ? holeAt : p.position(), now + holeSeconds * 1000L));
-            holesPlaced++;
-            wait = 4 + rand.nextInt(4);
-            finishCycle(p, now);
-        } else if (now - phaseSince > 1500) { // can't aim at the ground: just use the item
-            mc.gameMode.useItem(p, InteractionHand.MAIN_HAND);
-            p.swing(InteractionHand.MAIN_HAND);
-            holes.add(new Hole(holeAt != null ? holeAt : p.position(), now + holeSeconds * 1000L));
+        int count = p.getInventory().getItem(slot).getCount();
+        if (holeBefore < 0) holeBefore = count;
+        if (count < holeBefore) { // one was used up: it placed
             holesPlaced++;
             finishCycle(p, now);
+            return;
         }
+        if (now - phaseSince > 3500) { // never saw it get used up: move on anyway
+            Chat.msg("Couldn't confirm the black hole was placed; moving on.");
+            finishCycle(p, now);
+            return;
+        }
+        // keep trying (every 5 ticks) until it is used up
+        aim.setTarget(p.getYRot(), 70f, 500f, 1f);
+        if (stepTicks++ % 5 != 0) return;
+        if (mc.hitResult instanceof BlockHitResult bhr && bhr.getType() == HitResult.Type.BLOCK) {
+            mc.gameMode.useItemOn(p, InteractionHand.MAIN_HAND, bhr);
+        } else {
+            mc.gameMode.useItem(p, InteractionHand.MAIN_HAND);
+        }
+        p.swing(InteractionHand.MAIN_HAND);
     }
 
     /** Back to the prime axe and on to the next zombie. */
@@ -589,8 +587,7 @@ public class HuntController {
     public String status() {
         return (running ? "RUNNING " + phase : "stopped") + " | hits=" + hits + " holes=" + holesPlaced
                 + " | zombies in view=" + lastCands.size() + " | mob=\"" + mobFilter + "\" axe=\"" + axeName
-                + "\" hole=\"" + holeName + "\" golden=" + golden + " holeRadius=" + holeRadius
-                + " holeSeconds=" + holeSeconds;
+                + "\" hole=\"" + holeName + "\" golden=" + golden;
     }
 
     private void releaseMovement(Minecraft mc) {
