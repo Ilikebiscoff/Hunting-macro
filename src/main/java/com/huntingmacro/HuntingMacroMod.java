@@ -131,8 +131,33 @@ public class HuntingMacroMod implements ClientModInitializer {
                             })
                             .then(arg("s", DoubleArgumentType.doubleArg(0, 120)).executes(c -> {
                                 controller.holeTimeSec = DoubleArgumentType.getDouble(c, "s");
-                                Chat.msg("Black hole time: " + controller.holeTimeSec + "s"
+                                controller.holeAuto = false; // a hand-set value wins: /hunt hole auto on to learn again
+                                controller.saveSettings();
+                                Chat.msg("Black hole time: " + controller.holeTimeSec + "s (manual, auto-learning OFF)"
                                         + (controller.holeTimeSec == 0 ? " (no waiting between zombies)" : ""));
+                                return 1;
+                            })))
+                    .then(lit("auto")
+                            .executes(c -> {
+                                Chat.msg("Auto-learning the black hole time: " + (controller.holeAuto ? "ON" : "OFF")
+                                        + ", now " + controller.holeTimeSec + "s from " + controller.holeSamples + " samples");
+                                return 1;
+                            })
+                            .then(lit("on").executes(c -> {
+                                controller.holeAuto = true;
+                                controller.saveSettings();
+                                Chat.msg("Auto-learning ON: it measures how long each hole takes and adapts.");
+                                return 1;
+                            }))
+                            .then(lit("off").executes(c -> {
+                                controller.holeAuto = false;
+                                controller.saveSettings();
+                                Chat.msg("Auto-learning OFF (keeps " + controller.holeTimeSec + "s).");
+                                return 1;
+                            }))
+                            .then(lit("reset").executes(c -> {
+                                controller.forgetLearned();
+                                Chat.msg("Forgot what it learned: black hole time back to 5s.");
                                 return 1;
                             })))
                     .then(lit("lead").then(arg("s", DoubleArgumentType.doubleArg(0, 5)).executes(c -> {
@@ -299,7 +324,7 @@ public class HuntingMacroMod implements ClientModInitializer {
         Chat.msg(" /hunt hole name <text> - black hole item name");
         Chat.msg(" /hunt zone [off|on|text] - stay inside this area (sidebar text, default \"Diamond Reserve\"); if you leave, walk back to where you were 3 moves ago");
         Chat.msg(" /hunt area on|off|<x1> <z1> <x2> <z2> <y1> <y2> - only hunt zombies inside this box (default x -44..28, z -27..56, y 36..40)");
-        Chat.msg(" /hunt hole time <s> | lead <s> - seconds a black hole needs to finish (default 5) and how long before that the next zombie is hit (default 0.5)");
+        Chat.msg(" /hunt hole auto [on|off|reset] - learn the black hole time from real holes (default ON, saved), /hunt hole time <s> | lead <s> - seconds a black hole needs to finish (default 5) and how long before that the next zombie is hit (default 0.5)");
         Chat.msg(" /hunt lava [on|off|limit <n>] - after more than 3 lava incidents: /warp deep, walk to the lift, click the Lift Operator, click the diamond");
         Chat.msg(" /hunt lift [<x> <y> <z> | npc <text> | warp <cmd>] - lift spot (default 45 150 15), NPC name and warp command");
         Chat.msg(" /hunt range <blocks> - how far to look for zombies (default 80; pathing reaches ~44)");

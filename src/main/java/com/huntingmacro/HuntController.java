@@ -1,5 +1,6 @@
 package com.huntingmacro;
 
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
@@ -24,6 +25,11 @@ import net.minecraft.world.phys.Vec3;
 import com.huntingmacro.pathing.Planner;
 import com.huntingmacro.pathing.WalkCache;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -32,6 +38,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Random;
+import java.util.Properties;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -104,6 +111,9 @@ public class HuntController {
     /** How long one black hole needs to fully suck an enemy in (s), and how long before that we hit the next one. */
     public volatile double holeTimeSec = 5.0;
     public volatile double holeLeadSec = 0.5;
+    /** Measure how long a black hole really takes and adapt {@link #holeTimeSec} (saved between sessions). */
+    public volatile boolean holeAuto = true;
+    public volatile int holeSamples;
     /** Fixed scan box (block coordinates, inclusive). Zombies outside it are ignored (no ESP, no hunting). */
     public volatile boolean areaOn = true;
     public volatile int areaX1 = -44, areaX2 = 28, areaZ1 = -27, areaZ2 = 56, areaY1 = 36, areaY2 = 40;
@@ -133,6 +143,10 @@ public class HuntController {
     private int holeUseTick, holeMisses;
     /** When the black hole we placed last is fully done (ms since epoch), 0 = none running. */
     private long holeEndsAt;
+    /** Zombie we hit just before the hole, and the holes still waiting to see their zombie get sucked in. */
+    private Entity lastHit;
+    private record PendingHole(Entity zombie, long placedAt) {}
+    private final List<PendingHole> pendingHoles = new ArrayList<>();
 
     /** entity id -> time we hit it (never hit twice) or gave up on it. */
     private final Map<Integer, Long> tagged = new HashMap<>();
@@ -170,6 +184,84 @@ public class HuntController {
 
     public HuntController(WalkCache cache) {
         this.cache = cache;
+        loadLearned();
+    }
+
+    // ---- auto-learning the black hole time ---------------------------------------------------------------
+
+    private static Path learnedFile() {
+        return FabricLoader.getInstance().getConfigDir().resolve("huntingmacro.properties");
+    }
+
+    private void loadLearned() {
+        Path f = learnedFile();
+        if (!Files.isRegularFile(f)) return;
+        try (InputStream in = Files.newInputStream(f)) {
+            Properties pr = new Properties();
+            pr.load(in);
+            double t = Double.parseDouble(pr.getProperty("holeTimeSec", "" + holeTimeSec));
+            if (t >= 1.0 && t <= 60.0) holeTimeSec = t;
+            holeSamples = Integer.parseInt(pr.getProperty("holeSamples", "0"));
+            holeAuto = Boolean.parseBoolean(pr.getProperty("holeAuto", "true"));
+        } catch (Exception ignored) {
+            // bad file: keep the defaults
+        }
+    }
+
+    private void saveLearned() {
+        Properties pr = new Properties();
+        pr.setProperty("holeTimeSec", String.format(Locale.ROOT, "%.2f", holeTimeSec));
+        pr.setProperty("holeSamples", "" + holeSamples);
+        pr.setProperty("holeAuto", "" + holeAuto);
+        try (OutputStream out = Files.newOutputStream(learnedFile())) {
+            pr.store(out, "Hunting Macro: learned values");
+        } catch (IOException ignored) {
+            // can't save: it just learns again next time
+        }
+    }
+
+    public void saveSettings() {
+        saveLearned();
+    }
+
+    /** Resets the learned time to the default guess. */
+    public void forgetLearned() {
+        holeTimeSec = 5.0;
+        holeSamples = 0;
+        pendingHoles.clear();
+        saveLearned();
+    }
+
+    /**
+     * Every tick: a zombie we put a black hole next to that is now dead/gone tells us how long the hole needs.
+     * Under 1 s means our own hit killed it, over 40 s is a fluke; both are ignored. The first sample replaces the
+     * guess, later ones are blended in (70% old, 30% new).
+     */
+    private void learnHoles(long now) {
+        if (pendingHoles.isEmpty()) return;
+        var it = pendingHoles.iterator();
+        while (it.hasNext()) {
+            PendingHole h = it.next();
+            Entity z = h.zombie();
+            if (now - h.placedAt() > 60_000) {
+                it.remove();
+                continue;
+            }
+            if (z.isAlive()) continue;
+            it.remove();
+            Entity.RemovalReason why = z.getRemovalReason();
+            if (why == Entity.RemovalReason.UNLOADED_TO_CHUNK || why == Entity.RemovalReason.UNLOADED_WITH_PLAYER
+                    || why == Entity.RemovalReason.CHANGED_DIMENSION) continue; // walked out of range, not sucked in
+            double sec = (now - h.placedAt()) / 1000.0;
+            if (sec < 1.0 || sec > 40.0) continue;
+            if (!holeAuto) continue;
+            holeTimeSec = holeSamples == 0 ? sec : holeTimeSec * 0.7 + sec * 0.3;
+            holeTimeSec = Math.max(1.0, Math.min(60.0, holeTimeSec));
+            holeSamples++;
+            Chat.msg(String.format(Locale.ROOT, "Learned: that hole took %.1fs, black hole time is now %.1fs (%d samples)",
+                    sec, holeTimeSec, holeSamples));
+            saveLearned();
+        }
     }
 
     public boolean isRunning() {
@@ -205,6 +297,7 @@ public class HuntController {
         holePending = false;
         holeMisses = 0;
         holeEndsAt = 0;
+        pendingHoles.clear();
         recoverTicks = 0;
         wdCursor = null;
         anchor = null;
@@ -247,6 +340,7 @@ public class HuntController {
             anchor = null;
             return;
         }
+        learnHoles(now);
         tagged.values().removeIf(t -> now - t > TAG_MS);
         avoid.values().removeIf(t -> now - t > AVOID_MS);
         blacklist.values().removeIf(t -> now - t > BLACKLIST_MS);
@@ -670,6 +764,7 @@ public class HuntController {
             mc.gameMode.attack(p, current);
             p.swing(InteractionHand.MAIN_HAND);
             tagged.put(current.getId(), now);
+            lastHit = current;
             hits++;
             wait = 0; // black hole right away
             setPhase(Phase.GOLDEN, now);
@@ -769,6 +864,7 @@ public class HuntController {
         if (ok) {
             holesPlaced++;
             holeEndsAt = now + (long) (holeTimeSec * 1000); // the background timer: this hole is busy until then
+            if (holeAuto && lastHit != null) pendingHoles.add(new PendingHole(lastHit, now));
         } else {
             holeMisses++; // not used this time: no timer, the next zombie isn't held back
         }
@@ -1019,7 +1115,7 @@ public class HuntController {
     }
 
     public String status() {
-        return (running ? "RUNNING " + phase : "stopped") + " | area=" + (areaOn ? "x " + areaX1 + ".." + areaX2 + ", z " + areaZ1 + ".." + areaZ2 + ", y " + areaY1 + ".." + areaY2 : "off") + " | lava=" + lavaCount + "/" + lavaLimit + " | zone=\"" + (zoneGuard ? zoneText : "off") + "\" in=" + zoneOk + " | hits=" + hits + " holes=" + holesPlaced + " missed=" + holeMisses + " holeTimer="
+        return (running ? "RUNNING " + phase : "stopped") + " | area=" + (areaOn ? "x " + areaX1 + ".." + areaX2 + ", z " + areaZ1 + ".." + areaZ2 + ", y " + areaY1 + ".." + areaY2 : "off") + " | lava=" + lavaCount + "/" + lavaLimit + " | zone=\"" + (zoneGuard ? zoneText : "off") + "\" in=" + zoneOk + " | hits=" + hits + " holes=" + holesPlaced + " missed=" + holeMisses + " holeTime=" + String.format(Locale.ROOT, "%.1fs", holeTimeSec) + (holeAuto ? " (auto, " + holeSamples + " samples)" : " (manual)") + " holeTimer="
                 + (holeEndsAt > System.currentTimeMillis() ? String.format("%.1fs left", (holeEndsAt - System.currentTimeMillis()) / 1000.0) : "idle")
                 + " | zombies in view=" + lastCands.size() + " | mob=\"" + mobFilter + "\" axe=\"" + axeName
                 + "\" hole=\"" + holeName + "\" golden=" + golden;
