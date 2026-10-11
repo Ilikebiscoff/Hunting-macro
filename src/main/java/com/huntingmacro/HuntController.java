@@ -682,6 +682,79 @@ public class HuntController {
         return running ? current : null;
     }
 
+    // ---- zone guard --------------------------------------------------------------------------------------
+
+    /** Every ~0.5 s: if the sidebar says we left the zone, go back to where we were 3 moves ago. */
+    private boolean checkZone(Minecraft mc, LocalPlayer p, long now) {
+        if (!zoneGuard || zoneText.isBlank() || now < zoneGrace || ++zoneTick % 10 != 0) return false;
+        Boolean in = Zone.contains(mc, zoneText);
+        if (in == null) return false; // loading screen / no SkyBlock sidebar: can't tell
+        zoneOk = in;
+        if (in) {
+            outChecks = 0;
+            return false;
+        }
+        if (++outChecks < 2) return false; // must be out for two checks in a row
+        outChecks = 0;
+        Vec3[] arr = moves.toArray(new Vec3[0]);
+        if (arr.length == 0) {
+            Chat.msg("Left \"" + zoneText + "\" and there is no earlier spot to return to - stopping.");
+            stop(mc);
+            return true;
+        }
+        returnTo = arr[Math.max(0, arr.length - 3)];
+        returnSince = now;
+        leg = null;
+        legCursor = null;
+        planDirty = true;
+        releaseMovement(mc);
+        Chat.msg("Left \"" + zoneText + "\" - walking back to where I was 3 moves ago.");
+        setPhase(Phase.RETURN, now);
+        return true;
+    }
+
+    private void returnStep(Minecraft mc, LocalPlayer p, long now) {
+        if (returnTo == null) {
+            setPhase(Phase.HUNT, now);
+            return;
+        }
+        if (hDist(p.position(), returnTo) < 3.5 && Math.abs(p.getY() - returnTo.y) < 4) {
+            returnTo = null;
+            leg = null;
+            legCursor = null;
+            planDirty = true;
+            zoneGrace = now + 3000; // let the sidebar catch up
+            outChecks = 0;
+            setPhase(Phase.HUNT, now);
+            return;
+        }
+        if (now - returnSince > 40_000) {
+            Chat.msg("Couldn't get back into the zone in 40s - stopping.");
+            stop(mc);
+            return;
+        }
+        navigateTo(mc, p, now, List.of(BlockPos.containing(returnTo.x, returnTo.y, returnTo.z)), List.of());
+    }
+
+    // ---- ESP -------------------------------------------------------------------------------------------------------
+
+    private void updateEsp(Minecraft mc) {
+        LocalPlayer p = mc.player;
+        List<Entity> all = mc.level.getEntities((Entity) null, scanBox(p));
+        String filter = mobFilter.toLowerCase(Locale.ROOT);
+        List<Esp> out = new ArrayList<>();
+        for (Entity e : all) {
+            if (!wanted(e, all, filter)) continue;
+            int kind = e == current ? 1 : tagged.containsKey(e.getId()) ? 2 : 0;
+            out.add(new Esp(e, kind));
+        }
+        esp = out;
+    }
+
+    public List<Esp> esp() {
+        return esp;
+    }
+
     public String status() {
         return (running ? "RUNNING " + phase : "stopped") + " | area=" + (areaOn ? "x " + areaX1 + ".." + areaX2 + ", z " + areaZ1 + ".." + areaZ2 + ", y " + areaY1 + ".." + areaY2 : "off") + " | zone=\"" + (zoneGuard ? zoneText : "off") + "\" in=" + zoneOk + " | hits=" + hits + " holes=" + holesPlaced
                 + " | zombies in view=" + lastCands.size() + " | mob=\"" + mobFilter + "\" axe=\"" + axeName
