@@ -637,7 +637,6 @@ public class HuntController {
         legCursor.idx = Math.min(best + 1, pts.size() - 1);
         arrivedAt = 0;
         legStuck = 0;
-        stuckTicks = 0;
     }
 
     /**
