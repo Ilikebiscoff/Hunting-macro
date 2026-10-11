@@ -129,6 +129,38 @@ public class HuntingMacroMod implements ClientModInitializer {
                         Chat.msg("Zone guard " + (controller.zoneGuard ? "ON (" + controller.zoneText + ")" : "OFF"));
                         return 1;
                     })));
+            root.then(lit("area")
+                    .executes(c -> {
+                        Chat.msg("Scan area " + (controller.areaOn ? "ON" : "OFF") + ": x " + controller.areaX1 + ".."
+                                + controller.areaX2 + ", z " + controller.areaZ1 + ".." + controller.areaZ2 + ", y "
+                                + controller.areaY1 + ".." + controller.areaY2
+                                + " (/hunt area on|off|<x1> <z1> <x2> <z2> <y1> <y2>)");
+                        return 1;
+                    })
+                    .then(lit("on").executes(c -> {
+                        controller.areaOn = true;
+                        Chat.msg("Scan area ON.");
+                        return 1;
+                    }))
+                    .then(lit("off").executes(c -> {
+                        controller.areaOn = false;
+                        Chat.msg("Scan area OFF (using /hunt range around you).");
+                        return 1;
+                    }))
+                    .then(arg("x1", IntegerArgumentType.integer()).then(arg("z1", IntegerArgumentType.integer())
+                            .then(arg("x2", IntegerArgumentType.integer()).then(arg("z2", IntegerArgumentType.integer())
+                            .then(arg("y1", IntegerArgumentType.integer()).then(arg("y2", IntegerArgumentType.integer())
+                            .executes(c -> {
+                                controller.areaX1 = IntegerArgumentType.getInteger(c, "x1");
+                                controller.areaZ1 = IntegerArgumentType.getInteger(c, "z1");
+                                controller.areaX2 = IntegerArgumentType.getInteger(c, "x2");
+                                controller.areaZ2 = IntegerArgumentType.getInteger(c, "z2");
+                                controller.areaY1 = IntegerArgumentType.getInteger(c, "y1");
+                                controller.areaY2 = IntegerArgumentType.getInteger(c, "y2");
+                                controller.areaOn = true;
+                                Chat.msg("Scan area set and ON.");
+                                return 1;
+                            }))))))));
             root.then(lit("range").then(arg("blocks", DoubleArgumentType.doubleArg(5, 150)).executes(c -> {
                 controller.range = DoubleArgumentType.getDouble(c, "blocks");
                 Chat.msg("Search range " + controller.range + " blocks.");
@@ -185,6 +217,7 @@ public class HuntingMacroMod implements ClientModInitializer {
         Chat.msg(" /hunt golden use|hit|off - what to do with the golden axe (default off)");
         Chat.msg(" /hunt hole name <text> - black hole item name");
         Chat.msg(" /hunt zone [off|on|text] - stay inside this area (sidebar text, default \"Diamond Reserve\"); if you leave, walk back to where you were 3 moves ago");
+        Chat.msg(" /hunt area on|off|<x1> <z1> <x2> <z2> <y1> <y2> - only hunt zombies inside this box (default x -44..28, z -27..56, y 36..40)");
         Chat.msg(" /hunt range <blocks> - how far to look for zombies (default 80; pathing reaches ~44)");
         Chat.msg(" /hunt warp <command|off> - command to run when stuck or nothing to hunt (e.g. warp dr)");
         Chat.msg(" /hunt path - last pathfinder stats, /hunt highlight - toggle overlay, /hunt parkour on|off");

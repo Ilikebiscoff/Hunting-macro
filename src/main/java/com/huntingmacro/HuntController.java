@@ -89,6 +89,9 @@ public class HuntController {
     public volatile String holeName = "Medium Pocket Black Hole";
     public volatile Golden golden = Golden.OFF;
     public volatile double range = 80.0;
+    /** Fixed scan box (block coordinates, inclusive). Zombies outside it are ignored (no ESP, no hunting). */
+    public volatile boolean areaOn = true;
+    public volatile int areaX1 = -44, areaX2 = 28, areaZ1 = -27, areaZ2 = 56, areaY1 = 36, areaY2 = 40;
     /** Sidebar text of the hunting area; leaving it sends us back to where we were 3 moves ago. */
     public volatile String zoneText = "Diamond Reserve";
     public volatile boolean zoneGuard = true;
@@ -253,18 +256,34 @@ public class HuntController {
 
     /** Untouched filter-matching zombies in range that are not standing in a black hole, nearest first. */
     private List<Entity> candidates(Minecraft mc, LocalPlayer p, long now) {
-        AABB box = p.getBoundingBox().inflate(range, Math.min(range, 30), range);
-        List<Entity> all = mc.level.getEntities((Entity) null, box);
+        List<Entity> all = mc.level.getEntities((Entity) null, scanBox(p));
         String filter = mobFilter.toLowerCase(Locale.ROOT);
         List<Entity> out = new ArrayList<>();
         for (Entity e : all) {
             if (e.getType() != EntityType.ZOMBIE || !e.isAlive() || tagged.containsKey(e.getId())) continue;
+            if (!inArea(e)) continue;
             if (!filter.isEmpty() && !nameMatches(e, all, filter)) continue;
             out.add(e);
         }
         Vec3 me = p.position();
         out.sort((a, b) -> Double.compare(a.distanceToSqr(me), b.distanceToSqr(me)));
         return out;
+    }
+
+    /** Where to look for entities: the fixed area (plus a margin) or a box around us. */
+    private AABB scanBox(LocalPlayer p) {
+        if (!areaOn) return p.getBoundingBox().inflate(range, Math.min(range, 30), range);
+        return new AABB(Math.min(areaX1, areaX2) - 1, areaY1 - 4, Math.min(areaZ1, areaZ2) - 1,
+                Math.max(areaX1, areaX2) + 2, areaY2 + 5, Math.max(areaZ1, areaZ2) + 2);
+    }
+
+    /** Inside the fixed area (a block of slack in Y so zombies standing on the edge layers still count). */
+    private boolean inArea(Entity e) {
+        if (!areaOn) return true;
+        double x = e.getX(), y = e.getY(), z = e.getZ();
+        return x >= Math.min(areaX1, areaX2) && x < Math.max(areaX1, areaX2) + 1
+                && z >= Math.min(areaZ1, areaZ2) && z < Math.max(areaZ1, areaZ2) + 1
+                && y >= Math.min(areaY1, areaY2) - 1 && y < Math.max(areaY1, areaY2) + 2;
     }
 
     /** "12.5M/20M❤", "1,200❤", "❤ 300", "(50%)" etc: the health part of a SkyBlock name tag. */
@@ -719,11 +738,11 @@ public class HuntController {
 
     private void updateEsp(Minecraft mc) {
         LocalPlayer p = mc.player;
-        List<Entity> all = mc.level.getEntities((Entity) null, p.getBoundingBox().inflate(range, Math.min(range, 30), range));
+        List<Entity> all = mc.level.getEntities((Entity) null, scanBox(p));
         String filter = mobFilter.toLowerCase(Locale.ROOT);
         List<Esp> out = new ArrayList<>();
         for (Entity e : all) {
-            if (e.getType() != EntityType.ZOMBIE || !e.isAlive()) continue;
+            if (e.getType() != EntityType.ZOMBIE || !e.isAlive() || !inArea(e)) continue;
             int kind;
             if (e == current) kind = 1;
             else if (tagged.containsKey(e.getId())) kind = 2;
@@ -739,7 +758,7 @@ public class HuntController {
     }
 
     public String status() {
-        return (running ? "RUNNING " + phase : "stopped") + " | zone=\"" + (zoneGuard ? zoneText : "off") + "\" in=" + zoneOk + " | hits=" + hits + " holes=" + holesPlaced
+        return (running ? "RUNNING " + phase : "stopped") + " | area=" + (areaOn ? "x " + areaX1 + ".." + areaX2 + ", z " + areaZ1 + ".." + areaZ2 + ", y " + areaY1 + ".." + areaY2 : "off") + " | zone=\"" + (zoneGuard ? zoneText : "off") + "\" in=" + zoneOk + " | hits=" + hits + " holes=" + holesPlaced
                 + " | zombies in view=" + lastCands.size() + " | mob=\"" + mobFilter + "\" axe=\"" + axeName
                 + "\" hole=\"" + holeName + "\" golden=" + golden;
     }
