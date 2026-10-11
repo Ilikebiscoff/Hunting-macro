@@ -122,6 +122,24 @@ public class HuntingMacroMod implements ClientModInitializer {
                         Chat.msg("Black hole item name: \"" + controller.holeName + "\"");
                         return 1;
                     }))));
+            root.then(lit("hole")
+                    .then(lit("time")
+                            .executes(c -> {
+                                Chat.msg("A black hole takes " + controller.holeTimeSec + "s to suck an enemy in, next hit "
+                                        + controller.holeLeadSec + "s before it ends (/hunt hole time <seconds>, 0 = no waiting)");
+                                return 1;
+                            })
+                            .then(arg("s", DoubleArgumentType.doubleArg(0, 120)).executes(c -> {
+                                controller.holeTimeSec = DoubleArgumentType.getDouble(c, "s");
+                                Chat.msg("Black hole time: " + controller.holeTimeSec + "s"
+                                        + (controller.holeTimeSec == 0 ? " (no waiting between zombies)" : ""));
+                                return 1;
+                            })))
+                    .then(lit("lead").then(arg("s", DoubleArgumentType.doubleArg(0, 5)).executes(c -> {
+                        controller.holeLeadSec = DoubleArgumentType.getDouble(c, "s");
+                        Chat.msg("Hitting the next zombie " + controller.holeLeadSec + "s before the black hole ends.");
+                        return 1;
+                    }))));
             root.then(lit("golden")
                     .executes(c -> {
                         Chat.msg("Golden axe step: " + controller.golden + " (/hunt golden use|hit|off)");
@@ -234,6 +252,7 @@ public class HuntingMacroMod implements ClientModInitializer {
         Chat.msg(" /hunt hole name <text> - black hole item name");
         Chat.msg(" /hunt zone [off|on|text] - stay inside this area (sidebar text, default \"Diamond Reserve\"); if you leave, walk back to where you were 3 moves ago");
         Chat.msg(" /hunt area on|off|<x1> <z1> <x2> <z2> <y1> <y2> - only hunt zombies inside this box (default x -44..28, z -27..56, y 36..40)");
+        Chat.msg(" /hunt hole time <s> | lead <s> - seconds a black hole needs to finish (default 5) and how long before that the next zombie is hit (default 0.5)");
         Chat.msg(" /hunt range <blocks> - how far to look for zombies (default 80; pathing reaches ~44)");
         Chat.msg(" /hunt warp <command|off> - command to run when stuck or nothing to hunt (e.g. warp dr)");
         Chat.msg(" /hunt path - last pathfinder stats, /hunt highlight - toggle overlay, /hunt parkour on|off");

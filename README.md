@@ -7,7 +7,7 @@ Hypixel SkyBlock:
 2. hits it **once** with the prime hunt axe
 3. (optional, off by default) golden axe step: `/hunt golden use|hit`
 4. right-clicks the Medium Pocket Black Hole in the air (no aiming) until it vanishes from the hotbar, then swaps back to the Prime Huntaxe
-5. keeps walking to the next zombie the whole time (no waiting, no black hole timing)
+5. keeps walking to the next zombie; a background timer (`/hunt hole time`, default 5 s) knows when the hole is done, and the next zombie is hit `/hunt hole lead` (0.5 s) before that, then the next hole goes down
 
 Needs in the **hotbar**: the Prime Huntaxe and the Medium Pocket Black Hole (equip the wither skeleton pet: its double hit is passive).
 

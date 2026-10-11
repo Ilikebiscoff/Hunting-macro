@@ -92,6 +92,9 @@ public class HuntController {
     public volatile String holeName = "Medium Pocket Black Hole";
     public volatile Golden golden = Golden.OFF;
     public volatile double range = 80.0;
+    /** How long one black hole needs to fully suck an enemy in (s), and how long before that we hit the next one. */
+    public volatile double holeTimeSec = 5.0;
+    public volatile double holeLeadSec = 0.5;
     /** Fixed scan box (block coordinates, inclusive). Zombies outside it are ignored (no ESP, no hunting). */
     public volatile boolean areaOn = true;
     public volatile int areaX1 = -44, areaX2 = 28, areaZ1 = -27, areaZ2 = 56, areaY1 = 36, areaY2 = 40;
@@ -118,7 +121,9 @@ public class HuntController {
     /** Black hole being used while we already walk to the next zombie. */
     private boolean holePending;
     private long holeStart;
-    private int holeUseTick, holeFails;
+    private int holeUseTick, holeMisses;
+    /** When the black hole we placed last is fully done (ms since epoch), 0 = none running. */
+    private long holeEndsAt;
 
     /** entity id -> time we hit it (never hit twice) or gave up on it. */
     private final Map<Integer, Long> tagged = new HashMap<>();
@@ -189,7 +194,8 @@ public class HuntController {
         avoid.clear();
         blacklist.clear();
         holePending = false;
-        holeFails = 0;
+        holeMisses = 0;
+        holeEndsAt = 0;
         recoverTicks = 0;
         wdCursor = null;
         anchor = null;
@@ -433,6 +439,13 @@ public class HuntController {
         // close enough with a clear line: stop and hit it
         Entity near = cands.get(0);
         if (!holePending && inMelee(mc, p, near)) {
+            // previous black hole still working: stand by the zombie until it is (almost) done
+            if (now < holeEndsAt - (long) (holeLeadSec * 1000)) {
+                releaseMovement(mc);
+                float[] ang = anglesTo(p, centre(near));
+                aim.setTarget(ang[0], ang[1], 400f, 1f);
+                return;
+            }
             current = near;
             releaseMovement(mc);
             aim.retarget();
@@ -581,11 +594,9 @@ public class HuntController {
         holePending = false;
         if (ok) {
             holesPlaced++;
-            holeFails = 0;
-        } else if (++holeFails >= 3) {
-            Chat.msg("The black hole never got used 3 times in a row - stopping. Check /hunt items and /hunt hole name.");
-            stop(mc);
-            return;
+            holeEndsAt = now + (long) (holeTimeSec * 1000); // the background timer: this hole is busy until then
+        } else {
+            holeMisses++; // not used this time: no timer, the next zombie isn't held back
         }
         if (zoneOk) { // remember where this move ended (only spots inside the zone)
             moves.addLast(p.position());
@@ -834,7 +845,8 @@ public class HuntController {
     }
 
     public String status() {
-        return (running ? "RUNNING " + phase : "stopped") + " | area=" + (areaOn ? "x " + areaX1 + ".." + areaX2 + ", z " + areaZ1 + ".." + areaZ2 + ", y " + areaY1 + ".." + areaY2 : "off") + " | zone=\"" + (zoneGuard ? zoneText : "off") + "\" in=" + zoneOk + " | hits=" + hits + " holes=" + holesPlaced
+        return (running ? "RUNNING " + phase : "stopped") + " | area=" + (areaOn ? "x " + areaX1 + ".." + areaX2 + ", z " + areaZ1 + ".." + areaZ2 + ", y " + areaY1 + ".." + areaY2 : "off") + " | zone=\"" + (zoneGuard ? zoneText : "off") + "\" in=" + zoneOk + " | hits=" + hits + " holes=" + holesPlaced + " missed=" + holeMisses + " holeTimer="
+                + (holeEndsAt > System.currentTimeMillis() ? String.format("%.1fs left", (holeEndsAt - System.currentTimeMillis()) / 1000.0) : "idle")
                 + " | zombies in view=" + lastCands.size() + " | mob=\"" + mobFilter + "\" axe=\"" + axeName
                 + "\" hole=\"" + holeName + "\" golden=" + golden;
     }
