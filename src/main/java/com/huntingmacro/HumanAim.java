@@ -51,6 +51,15 @@ public class HumanAim {
         holdUntil = time + 0.09 + rand.nextFloat() * 0.13;
     }
 
+    /** Like {@link #retarget()} but no reaction delay, tiny aiming error and a stiff spring: for quick hits. */
+    public void retargetFast() {
+        offYaw = (float) rand.nextGaussian() * 0.12f;
+        offPitch = (float) rand.nextGaussian() * 0.10f;
+        omega = 24f + rand.nextFloat() * 6f;
+        zeta = 0.9f;
+        holdUntil = time + 0.02;
+    }
+
     /** Sets the absolute angles to track (call every tick, cheap). */
     public void setTarget(float yaw, float pitch) {
         setTarget(yaw, pitch, 1000f, 1f);
