@@ -28,6 +28,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * Hunting loop for the Diamond Reserve miner zombies:
@@ -266,15 +267,26 @@ public class HuntController {
         return out;
     }
 
+    /** "12.5M/20M❤", "1,200❤", "❤ 300", "(50%)" etc: the health part of a SkyBlock name tag. */
+    private static final Pattern HEALTH = Pattern.compile(
+            "(?i)[\\[(]?\\s*[\\d.,]+\\s*[kmbt]?\\s*(/\\s*[\\d.,]+\\s*[kmbt]?)?\\s*[❤♥][\\])]?|[❤♥]\\s*[\\d.,]+\\s*[kmbt]?(/\\s*[\\d.,]+\\s*[kmbt]?)?");
+
+    /** Name tag text with colour codes and the health number removed, e.g. "[Lv100] Miner Zombie". */
+    static String cleanName(String raw) {
+        String t = raw.replaceAll("§.", "");
+        t = HEALTH.matcher(t).replaceAll(" ");
+        return t.replaceAll("\\s+", " ").trim();
+    }
+
     /** SkyBlock mobs carry their name on a floating armor stand just above them (or on the mob itself). */
     private static boolean nameMatches(Entity zombie, List<Entity> all, String filter) {
         var own = zombie.getCustomName();
-        if (own != null && own.getString().toLowerCase(Locale.ROOT).contains(filter)) return true;
+        if (own != null && cleanName(own.getString()).toLowerCase(Locale.ROOT).contains(filter)) return true;
         AABB near = zombie.getBoundingBox().inflate(0.9, 2.6, 0.9);
         for (Entity e : all) {
             if (e.getType() != EntityType.ARMOR_STAND || !near.contains(e.position())) continue;
             var n = e.getCustomName();
-            if (n != null && n.getString().toLowerCase(Locale.ROOT).contains(filter)) return true;
+            if (n != null && cleanName(n.getString()).toLowerCase(Locale.ROOT).contains(filter)) return true;
         }
         return false;
     }
@@ -290,9 +302,9 @@ public class HuntController {
                 z++;
                 var n = e.getCustomName();
                 Chat.msg("zombie id " + e.getId() + " " + String.format("%.1f", e.distanceTo(p)) + "m"
-                        + (n != null ? " name=" + n.getString() : ""));
+                        + (n != null ? " name=" + cleanName(n.getString()) : ""));
             } else if (e.getType() == EntityType.ARMOR_STAND && e.getCustomName() != null) {
-                Chat.msg("tag: " + e.getCustomName().getString());
+                Chat.msg("tag: " + cleanName(e.getCustomName().getString()));
             }
         }
         Chat.msg(z + " zombies within 30 blocks. Mob filter is \"" + mobFilter + "\" (/hunt mob <text>).");
