@@ -11,7 +11,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.inventory.ClickType;
+import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -426,7 +426,7 @@ public class HuntController {
                 aim.setTarget(ang[0], ang[1], 500f, 1f);
                 boolean onIt = aim.settled(p, 4f) && mc.hitResult instanceof EntityHitResult ehr && ehr.getEntity() == npc;
                 if ((onIt || now - rescueAt > 3000) && liftUseTick++ % 20 == 0) { // retry every second
-                    mc.gameMode.interact(p, npc, InteractionHand.MAIN_HAND);
+                    mc.gameMode.interact(p, npc, new EntityHitResult(npc), InteractionHand.MAIN_HAND);
                     p.swing(InteractionHand.MAIN_HAND);
                 }
                 if (now - rescueAt > 25_000) {
@@ -445,7 +445,7 @@ public class HuntController {
                 int n = menu.slots.size() - 36; // the last 36 slots are our own inventory
                 for (int i = 0; i < n; i++) {
                     if (menu.slots.get(i).getItem().is(Items.DIAMOND)) {
-                        mc.gameMode.handleInventoryMouseClick(menu.containerId, i, 0, ClickType.PICKUP, p);
+                        mc.gameMode.handleContainerInput(menu.containerId, i, 0, ContainerInput.PICKUP, p);
                         rescueStep = 5;
                         rescueAt = now;
                         return;

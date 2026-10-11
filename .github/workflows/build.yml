@@ -22,6 +22,13 @@ jobs:
           gradle-version: 9.4.0
       - name: Build
         run: gradle build --no-daemon -Pmod_version=1.0.${{ github.run_number }}
+      - name: TEMP api probe
+        if: always()
+        run: |
+          J=$(ls .gradle/loom-cache/minecraftMaven/net/minecraft/minecraft-merged-*/26.1.2/*.jar 2>/dev/null | grep -v sources | head -1)
+          echo "JAR=$J"
+          unzip -l "$J" | grep -i 'world/inventory/.*\(Click\|Input\)' || true
+          javap -public -cp "$J" net.minecraft.client.multiplayer.MultiPlayerGameMode | grep -i 'click\|container\|interact' || true
       - name: Upload jar artifact
         uses: actions/upload-artifact@v4
         with:
