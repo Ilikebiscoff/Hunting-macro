@@ -11,6 +11,7 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.gizmos.GizmoStyle;
@@ -28,6 +29,8 @@ public class HuntingMacroMod implements ClientModInitializer {
     public void onInitializeClient() {
         Planner.REACH = 2.6; // melee: stand within sword reach of the zombie, not mining reach
         controller = new HuntController(cache);
+
+        ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> Updater.onJoin());
 
         ClientTickEvents.START_CLIENT_TICK.register(mc -> {
             cache.tick(mc);
@@ -58,6 +61,19 @@ public class HuntingMacroMod implements ClientModInitializer {
                 Chat.msg(controller.status());
                 return 1;
             }));
+            root.then(lit("version").executes(c -> {
+                Chat.msg(Updater.versionInfo());
+                return 1;
+            }));
+            root.then(lit("update")
+                    .executes(c -> {
+                        Updater.run(false, true);
+                        return 1;
+                    })
+                    .then(lit("check").executes(c -> {
+                        Updater.run(false, false);
+                        return 1;
+                    })));
             root.then(lit("items").executes(c -> {
                 if (mc.player != null) Chat.msg(HuntController.hotbarNames(mc.player));
                 return 1;
@@ -209,6 +225,7 @@ public class HuntingMacroMod implements ClientModInitializer {
     private static void help() {
         Chat.msg("Commands:");
         Chat.msg(" /hunt start | stop | status");
+        Chat.msg(" /hunt update | update check | version - download the newest build (restart the game afterwards)");
         Chat.msg(" /hunt items - list your hotbar item names");
         Chat.msg(" /hunt scan - list zombies and name tags around you (find the right mob name)");
         Chat.msg(" /hunt mob <text|any> - name tag text of the zombies to hunt (default: any zombie)");

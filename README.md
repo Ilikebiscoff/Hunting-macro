@@ -17,6 +17,9 @@ Needs in the **hotbar**: the Prime Huntaxe and the Medium Pocket Black Hole (equ
 `/hunt golden use|hit|off`, `/hunt hole name`, `/hunt range <blocks>`,
 `/hunt warp <command|off>`, `/hunt path`, `/hunt highlight`, `/hunt parkour on|off`.
 
+## Updating
+On joining a world the mod checks the `latest-build` release and tells you if a newer jar exists. `/hunt update` downloads it into your mods folder (SHA-256 checked against the release) and the old jar is removed when the game closes; restart the game to run the new code. `/hunt version` shows what you have. If the old jar is still in the mods folder after closing, delete it by hand.
+
 ## Build
 GitHub Actions builds the jar on every push (artifact + `latest-build` prerelease).
 
