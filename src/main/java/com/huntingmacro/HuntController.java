@@ -114,6 +114,11 @@ public class HuntController {
     /** Measure how long a black hole really takes and adapt {@link #holeTimeSec} (saved between sessions). */
     public volatile boolean holeAuto = true;
     public volatile int holeSamples;
+    /** Timings learned after every hit/hole (seconds, 0 = not learned yet). */
+    public volatile double useLatencySec, cooldownSec, hitToHoleSec;
+    public volatile int timingSamples;
+    /** Set when the lead was typed in by hand: auto-learning then leaves it alone. */
+    public volatile boolean holeLeadManual;
     /** Fixed scan box (block coordinates, inclusive). Zombies outside it are ignored (no ESP, no hunting). */
     public volatile boolean areaOn = true;
     public volatile int areaX1 = -44, areaX2 = 28, areaZ1 = -27, areaZ2 = 56, areaY1 = 36, areaY2 = 40;
@@ -145,6 +150,8 @@ public class HuntController {
     private long holeEndsAt;
     /** Zombie we hit just before the hole, and the holes still waiting to see their zombie get sucked in. */
     private Entity lastHit;
+    private long hitAt, holeUseStart, vanishAt;
+    private boolean watchBack;
     private record PendingHole(Entity zombie, long placedAt) {}
     private final List<PendingHole> pendingHoles = new ArrayList<>();
 
@@ -203,6 +210,13 @@ public class HuntController {
             if (t >= 1.0 && t <= 60.0) holeTimeSec = t;
             holeSamples = Integer.parseInt(pr.getProperty("holeSamples", "0"));
             holeAuto = Boolean.parseBoolean(pr.getProperty("holeAuto", "true"));
+            useLatencySec = Double.parseDouble(pr.getProperty("useLatencySec", "0"));
+            cooldownSec = Double.parseDouble(pr.getProperty("cooldownSec", "0"));
+            hitToHoleSec = Double.parseDouble(pr.getProperty("hitToHoleSec", "0"));
+            timingSamples = Integer.parseInt(pr.getProperty("timingSamples", "0"));
+            holeLeadManual = Boolean.parseBoolean(pr.getProperty("holeLeadManual", "false"));
+            double lead = Double.parseDouble(pr.getProperty("holeLeadSec", "" + holeLeadSec));
+            if (lead >= 0 && lead <= 5) holeLeadSec = lead;
         } catch (Exception ignored) {
             // bad file: keep the defaults
         }
@@ -213,6 +227,12 @@ public class HuntController {
         pr.setProperty("holeTimeSec", String.format(Locale.ROOT, "%.2f", holeTimeSec));
         pr.setProperty("holeSamples", "" + holeSamples);
         pr.setProperty("holeAuto", "" + holeAuto);
+        pr.setProperty("useLatencySec", String.format(Locale.ROOT, "%.3f", useLatencySec));
+        pr.setProperty("cooldownSec", String.format(Locale.ROOT, "%.3f", cooldownSec));
+        pr.setProperty("hitToHoleSec", String.format(Locale.ROOT, "%.3f", hitToHoleSec));
+        pr.setProperty("timingSamples", "" + timingSamples);
+        pr.setProperty("holeLeadManual", "" + holeLeadManual);
+        pr.setProperty("holeLeadSec", String.format(Locale.ROOT, "%.3f", holeLeadSec));
         try (OutputStream out = Files.newOutputStream(learnedFile())) {
             pr.store(out, "Hunting Macro: learned values");
         } catch (IOException ignored) {
@@ -228,6 +248,11 @@ public class HuntController {
     public void forgetLearned() {
         holeTimeSec = 5.0;
         holeSamples = 0;
+        useLatencySec = cooldownSec = hitToHoleSec = 0;
+        timingSamples = 0;
+        holeLeadSec = 0.5;
+        holeLeadManual = false;
+        watchBack = false;
         pendingHoles.clear();
         saveLearned();
     }
@@ -237,7 +262,20 @@ public class HuntController {
      * Under 1 s means our own hit killed it, over 40 s is a fluke; both are ignored. The first sample replaces the
      * guess, later ones are blended in (70% old, 30% new).
      */
-    private void learnHoles(long now) {
+    private static double blend(double old, double sample) {
+        return old <= 0 ? sample : old * 0.7 + sample * 0.3;
+    }
+
+    private void learnHoles(LocalPlayer p, long now) {
+        if (watchBack && holeSlot(p) >= 0) { // the black hole is back in the hotbar: that's its cooldown
+            watchBack = false;
+            double c = (now - vanishAt) / 1000.0;
+            if (holeAuto && c >= 0.3 && c <= 60.0) {
+                cooldownSec = blend(cooldownSec, c);
+                Chat.msg(String.format(Locale.ROOT, "Learned: the black hole is back after %.1fs (avg %.1fs)", c, cooldownSec));
+                saveLearned();
+            }
+        }
         if (pendingHoles.isEmpty()) return;
         var it = pendingHoles.iterator();
         while (it.hasNext()) {
@@ -340,7 +378,7 @@ public class HuntController {
             anchor = null;
             return;
         }
-        learnHoles(now);
+        learnHoles(p, now);
         tagged.values().removeIf(t -> now - t > TAG_MS);
         avoid.values().removeIf(t -> now - t > AVOID_MS);
         blacklist.values().removeIf(t -> now - t > BLACKLIST_MS);
@@ -821,7 +859,8 @@ public class HuntController {
         Entity near = cands.get(0);
         if (!holePending && inMelee(mc, p, near)) {
             // previous black hole still working: stand by the zombie until it is (almost) done
-            if (now < holeEndsAt - (long) (holeLeadSec * 1000)) {
+            long backAt = watchBack && cooldownSec > 0 ? vanishAt + (long) (cooldownSec * 1000) - (long) (hitToHoleSec * 1000) : 0;
+            if (now < Math.max(holeEndsAt - (long) (holeLeadSec * 1000), backAt)) {
                 releaseMovement(mc);
                 float[] ang = anglesTo(p, centre(near));
                 aim.setTarget(ang[0], ang[1], 400f, 1f);
@@ -878,6 +917,7 @@ public class HuntController {
             p.swing(InteractionHand.MAIN_HAND);
             tagged.put(current.getId(), now);
             lastHit = current;
+            hitAt = now;
             hits++;
             wait = 0; // black hole right away
             setPhase(Phase.GOLDEN, now);
@@ -939,11 +979,11 @@ public class HuntController {
         int slot = holeSlot(p);
         if (slot < 0) {
             if (holeHeld) { // it disappeared from the hotbar: placed
-                holeDone(mc, p, now, true);
+                holeDone(mc, p, now, true, true);
             } else if (now - holeStart > 4000) { // never showed up (still gone from the last one?)
                 Chat.msg("No black hole in the hotbar (looked for \"" + holeName + "\" / \"black hole\"). Hotbar: "
                         + hotbarNames(p));
-                holeDone(mc, p, now, false);
+                holeDone(mc, p, now, false, false);
             }
             return;
         }
@@ -958,29 +998,61 @@ public class HuntController {
         int count = p.getInventory().getItem(slot).getCount();
         if (holeBefore < 0) holeBefore = count;
         if (count < holeBefore) {
-            holeDone(mc, p, now, true);
+            holeDone(mc, p, now, true, false);
             return;
         }
-        if (now - holeStart > 1500) { // never saw it vanish or shrink
-            holeDone(mc, p, now, false);
+        // give up after 3x the usual delay (learned), at least 1.5 s
+        if (now - holeStart > Math.max(1500L, (long) (useLatencySec * 3000))) {
+            holeDone(mc, p, now, false, false);
             return;
         }
         if (holeUseTick++ % 3 == 0) {
+            if (holeUseStart == 0) holeUseStart = now;
             mc.gameMode.useItem(p, InteractionHand.MAIN_HAND);
             p.swing(InteractionHand.MAIN_HAND);
         }
     }
 
+    /**
+     * After every hit that ended in a placed hole: how long the hole took to register (first right click ->
+     * gone), how long hit -> placed took, and (from the hotbar watcher) its cooldown. The "hit before the old hole
+     * ends" lead follows hit -> placed so the new hole goes down just as the old one finishes.
+     */
+    private void learnTimings(long now, boolean vanished) {
+        if (holeUseStart != 0) {
+            double u = (now - holeUseStart) / 1000.0;
+            if (u >= 0.02 && u <= 5.0) useLatencySec = blend(useLatencySec, u);
+        }
+        if (hitAt != 0) {
+            double h = (now - hitAt) / 1000.0;
+            if (h >= 0.1 && h <= 5.0) {
+                hitToHoleSec = blend(hitToHoleSec, h);
+                if (!holeLeadManual) holeLeadSec = Math.max(0.2, Math.min(2.0, hitToHoleSec + 0.1));
+            }
+        }
+        if (vanished) { // start the stopwatch for when it comes back
+            vanishAt = now;
+            watchBack = true;
+        }
+        timingSamples++;
+        Chat.msg(String.format(Locale.ROOT,
+                "Learned timings (%d): hit->hole %.2fs, hole registers in %.2fs, hit lead %.2fs%s",
+                timingSamples, hitToHoleSec, useLatencySec, holeLeadSec, holeLeadManual ? " (manual)" : ""));
+        saveLearned();
+    }
+
     /** Back to the Prime Huntaxe; keeps the current path so we don't stop walking. */
-    private void holeDone(Minecraft mc, LocalPlayer p, long now, boolean ok) {
+    private void holeDone(Minecraft mc, LocalPlayer p, long now, boolean ok, boolean vanished) {
         holePending = false;
         if (ok) {
             holesPlaced++;
+            if (holeAuto) learnTimings(now, vanished);
             holeEndsAt = now + (long) (holeTimeSec * 1000); // the background timer: this hole is busy until then
             if (holeAuto && lastHit != null) pendingHoles.add(new PendingHole(lastHit, now));
         } else {
             holeMisses++; // not used this time: no timer, the next zombie isn't held back
         }
+        holeUseStart = 0;
         if (zoneOk) { // remember where this move ended (only spots inside the zone)
             moves.addLast(p.position());
             while (moves.size() > 12) moves.removeFirst();
@@ -1228,7 +1300,7 @@ public class HuntController {
     }
 
     public String status() {
-        return (running ? "RUNNING " + phase : "stopped") + " | area=" + (areaOn ? "x " + areaX1 + ".." + areaX2 + ", z " + areaZ1 + ".." + areaZ2 + ", y " + areaY1 + ".." + areaY2 : "off") + " | lava=" + lavaCount + "/" + lavaLimit + " | zone=\"" + (zoneGuard ? zoneText : "off") + "\" in=" + zoneOk + " | hits=" + hits + " holes=" + holesPlaced + " missed=" + holeMisses + " holeTime=" + String.format(Locale.ROOT, "%.1fs", holeTimeSec) + (holeAuto ? " (auto, " + holeSamples + " samples)" : " (manual)") + " holeTimer="
+        return (running ? "RUNNING " + phase : "stopped") + " | area=" + (areaOn ? "x " + areaX1 + ".." + areaX2 + ", z " + areaZ1 + ".." + areaZ2 + ", y " + areaY1 + ".." + areaY2 : "off") + " | lava=" + lavaCount + "/" + lavaLimit + " | zone=\"" + (zoneGuard ? zoneText : "off") + "\" in=" + zoneOk + " | hits=" + hits + " holes=" + holesPlaced + " missed=" + holeMisses + " holeTime=" + String.format(Locale.ROOT, "%.1fs", holeTimeSec) + (holeAuto ? " (auto, " + holeSamples + " samples)" : " (manual)") + " learned[hit->hole=" + String.format(Locale.ROOT, "%.2f", hitToHoleSec) + "s register=" + String.format(Locale.ROOT, "%.2f", useLatencySec) + "s cooldown=" + String.format(Locale.ROOT, "%.1f", cooldownSec) + "s lead=" + String.format(Locale.ROOT, "%.2f", holeLeadSec) + "s n=" + timingSamples + "]" + " holeTimer="
                 + (holeEndsAt > System.currentTimeMillis() ? String.format("%.1fs left", (holeEndsAt - System.currentTimeMillis()) / 1000.0) : "idle")
                 + " | zombies in view=" + lastCands.size() + " | mob=\"" + mobFilter + "\" axe=\"" + axeName
                 + "\" hole=\"" + holeName + "\" golden=" + golden;

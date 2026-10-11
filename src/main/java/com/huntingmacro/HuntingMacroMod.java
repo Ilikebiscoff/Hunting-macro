@@ -139,14 +139,20 @@ public class HuntingMacroMod implements ClientModInitializer {
                             })))
                     .then(lit("auto")
                             .executes(c -> {
-                                Chat.msg("Auto-learning the black hole time: " + (controller.holeAuto ? "ON" : "OFF")
-                                        + ", now " + controller.holeTimeSec + "s from " + controller.holeSamples + " samples");
+                                Chat.msg("Auto-learning " + (controller.holeAuto ? "ON" : "OFF") + ": hole time "
+                                        + String.format("%.1f", controller.holeTimeSec) + "s (" + controller.holeSamples
+                                        + " samples), hit->hole " + String.format("%.2f", controller.hitToHoleSec)
+                                        + "s, registers in " + String.format("%.2f", controller.useLatencySec)
+                                        + "s, back after " + String.format("%.1f", controller.cooldownSec)
+                                        + "s, lead " + String.format("%.2f", controller.holeLeadSec) + "s"
+                                        + (controller.holeLeadManual ? " (manual)" : "") + " from " + controller.timingSamples + " hits");
                                 return 1;
                             })
                             .then(lit("on").executes(c -> {
                                 controller.holeAuto = true;
+                                controller.holeLeadManual = false;
                                 controller.saveSettings();
-                                Chat.msg("Auto-learning ON: it measures how long each hole takes and adapts.");
+                                Chat.msg("Auto-learning ON: after every hit it measures the hole timings and adapts (lead too).");
                                 return 1;
                             }))
                             .then(lit("off").executes(c -> {
@@ -157,12 +163,14 @@ public class HuntingMacroMod implements ClientModInitializer {
                             }))
                             .then(lit("reset").executes(c -> {
                                 controller.forgetLearned();
-                                Chat.msg("Forgot what it learned: black hole time back to 5s.");
+                                Chat.msg("Forgot everything it learned: hole time back to 5s, lead 0.5s.");
                                 return 1;
                             })))
                     .then(lit("lead").then(arg("s", DoubleArgumentType.doubleArg(0, 5)).executes(c -> {
                         controller.holeLeadSec = DoubleArgumentType.getDouble(c, "s");
-                        Chat.msg("Hitting the next zombie " + controller.holeLeadSec + "s before the black hole ends.");
+                        controller.holeLeadManual = true; // hand-set: auto-learning leaves the lead alone
+                        controller.saveSettings();
+                        Chat.msg("Hitting the next zombie " + controller.holeLeadSec + "s before the black hole ends (manual).");
                         return 1;
                     }))));
             root.then(lit("lava")
