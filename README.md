@@ -1,4 +1,21 @@
-# Hunting Macro
+# Nablzz Addons
+
+One client-side Fabric mod (Minecraft Java 26.1.2, Java 25) with two Hypixel SkyBlock macros and one settings screen:
+
+- **Hunting**: Diamond Reserve miner zombies (details below)
+- **Mushroom**: glowing mushroom mining with a recorded route, fail-safe (reconnect / rejoin / warp back) and an avoid list
+
+Open the settings screen with **Right Shift** (rebind under Controls > "Nablzz Addons"), `/nablzz`, `/hunt` or `/glowing`.
+Modules along the top, tabs in the sidebar. Only one macro runs at a time (starting one stops the other).
+`/nablzz update` / `/nablzz version` run the updater. All the old commands (`/hunt ...`, `/glowing ...`) still work.
+Settings are saved in `config/huntingmacro_settings.properties`, `config/glowingmushroom_settings.properties` and `config/nablzzaddons.properties`;
+the route and avoid list keep their old files.
+
+Replaces `hunting-macro-*.jar` and `glowing-mushroom-auto-*.jar`: delete both old jars from `mods/` when installing this one.
+
+---
+
+# Hunting macro
 
 Client-side Fabric mod (Minecraft Java 26.1.2, Java 25) that hunts the Diamond Reserve miner zombies on
 Hypixel SkyBlock:
