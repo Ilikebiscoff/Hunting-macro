@@ -21,6 +21,8 @@ Every 5 kills the greyed-out zombies (already hit) are reset so they can be hit 
 
 A new black hole is only placed after the previous one has printed its "You caught x2/x3 Miner Zombie Shards!" chat line (`/hunt caught`); that line also gives the exact hole time, so the timer is learned from it.
 
+The black hole item is right-clicked once, not spammed: if the game prints "This ability is on cooldown for Ns" the macro waits that long first, and it retries at most once after a second of no result.
+
 ## Updating
 On joining a world the mod checks the `latest-build` release and tells you if a newer jar exists. `/hunt update` downloads it into your mods folder (SHA-256 checked against the release) and the old jar is removed when the game closes; restart the game to run the new code. `/hunt version` shows what you have. If the old jar is still in the mods folder after closing, delete it by hand.
 

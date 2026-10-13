@@ -150,7 +150,11 @@ public class HuntController {
     /** Black hole being used while we already walk to the next zombie. */
     private boolean holePending;
     private long holeStart;
-    private int holeUseTick, holeMisses;
+    private int holeUseTick, holeMisses, holeTries;
+    /** Right click times: one click, then wait for the result before another one (no spamming). */
+    private long lastUseAt;
+    /** The game says "This ability is on cooldown for Ns." -> no clicks before this moment. */
+    private long abilityReadyAt;
     /** When the black hole we placed last is fully done (ms since epoch), 0 = none running. */
     private long holeEndsAt;
     /** Zombie we hit just before the hole, and the holes still waiting to see their zombie get sucked in. */
@@ -325,6 +329,7 @@ public class HuntController {
         return false;
     }
 
+    private static final Pattern COOLDOWN = Pattern.compile("(?i)on cooldown for\\s*(\\d+(?:\\.\\d+)?)\\s*s");
     private static final Pattern CAUGHT_COUNT = Pattern.compile("[x\u00d7]\\s*(\\d+)");
 
     /** Called for every chat/system line. */
@@ -332,6 +337,15 @@ public class HuntController {
         if (!running || raw == null) return;
         String t = raw.replaceAll("\u00a7.", "");
         String low = t.toLowerCase(Locale.ROOT);
+        Matcher cd = COOLDOWN.matcher(t);
+        if (cd.find()) { // "This ability is on cooldown for 1s." -> wait it out, that click didn't count
+            double sec = Double.parseDouble(cd.group(1));
+            abilityReadyAt = System.currentTimeMillis() + (long) (sec * 1000) + 200;
+            lastUseAt = 0;
+            holeUseStart = 0;
+            if (holeTries > 0) holeTries--;
+            return;
+        }
         if (caughtText.isBlank() || !low.contains(caughtText.toLowerCase(Locale.ROOT))) return;
         if (!caughtMob.isBlank() && !low.contains(caughtMob.toLowerCase(Locale.ROOT))) return;
         Matcher m = CAUGHT_COUNT.matcher(t);
@@ -1131,6 +1145,8 @@ public class HuntController {
         holeHeld = false;
         holeBefore = -1;
         holeUseTick = 0;
+        holeTries = 0;
+        lastUseAt = 0;
         current = null;
         setPhase(Phase.HUNT, now);
     }
@@ -1167,8 +1183,10 @@ public class HuntController {
         if (p.getInventory().getSelectedSlot() != slot) {
             p.getInventory().setSelectedSlot(slot);
             holeBefore = p.getInventory().getItem(slot).getCount();
-            holeStart = now; // the 1.5 s try starts once it is in hand
+            holeStart = now; // the tries start once it is in hand
             holeUseTick = 0;
+            holeTries = 0;
+            lastUseAt = 0;
             return;
         }
         holeHeld = true;
@@ -1178,12 +1196,21 @@ public class HuntController {
             holeDone(mc, p, now, true, false);
             return;
         }
-        // give up after 3x the usual delay (learned), at least 1.5 s
-        if (now - holeStart > Math.max(1500L, (long) (useLatencySec * 3000))) {
-            holeDone(mc, p, now, false, false);
+        if (now < abilityReadyAt) { // "ability is on cooldown": wait, no clicking
+            holeStart = now;
             return;
         }
-        if (holeUseTick++ % 3 == 0) {
+        // one click, then give it time to show (3x the usual delay, at least 1 s) before trying again; 2 tries max
+        long retry = Math.max(1000L, (long) (useLatencySec * 3000));
+        if (holeTries > 0 && now - lastUseAt >= retry) {
+            if (holeTries >= 2) { // two clicks and nothing happened
+                holeDone(mc, p, now, false, false);
+                return;
+            }
+        }
+        if (holeTries == 0 || now - lastUseAt >= retry) {
+            holeTries++;
+            lastUseAt = now;
             if (holeUseStart == 0) holeUseStart = now;
             mc.gameMode.useItem(p, InteractionHand.MAIN_HAND);
             p.swing(InteractionHand.MAIN_HAND);
@@ -1238,6 +1265,8 @@ public class HuntController {
             holeStart = now;
             holeUseStart = 0;
             holeUseTick = 0;
+            holeTries = 0;
+            lastUseAt = 0;
             return; // still pending
         }
         holePending = false;
