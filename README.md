@@ -23,9 +23,9 @@ A new black hole is only placed after the previous one has printed its "You caug
 
 The black hole item is right-clicked once, not spammed: if the game prints "This ability is on cooldown for Ns" the macro waits that long first, and it retries at most once after a second of no result.
 
-The black hole is only used right after a hit has landed (short 2-tick swap pause, then one click). The lift trip prints what it is doing ("Lift: found the NPC", "clicked", "menu is open", the menu's slots) and walks up to the NPC before clicking it, so a failure shows where it stops.
+The black hole is only used right after a hit has landed (short swap pause, 4 ticks by default - /hunt swap - then one click). The lift trip prints what it is doing ("Lift: found the NPC", "clicked", "menu is open", the menu's slots) and walks up to the NPC before clicking it, so a failure shows where it stops.
 
-Order per zombie: wait until the last black hole is (almost) done and its ability is ready, hit once, swap to the black hole in the same tick, click it once 2 ticks later while standing still, then walk to the next zombie. The next hit never starts before the hole is ready, so the hole is always placed right after the hit and never spams the cooldown message.
+Order per zombie: wait until the last black hole is (almost) done and its ability is ready, hit once, swap to the black hole in the same tick, click it once a few ticks later (/hunt swap, default 4) while standing still, then walk to the next zombie. The next hit never starts before the hole is ready, so the hole is always placed right after the hit and never spams the cooldown message.
 
 The lift trip always runs in full (warp, walk, click the Lift Operator, click the diamond) before the macro looks at where it is; the Diamond Reserve zone and scan-area checks only apply once it is hunting again.
 

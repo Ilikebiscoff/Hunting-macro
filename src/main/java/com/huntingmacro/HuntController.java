@@ -180,7 +180,7 @@ public class HuntController {
     /** Seconds from placing a hole to "This ability is now ready!" (learned). */
     public volatile double readyAfterSec;
     /** Ticks to wait after switching to the black hole before the first click (the server needs the slot packet). */
-    private static final int SWAP_TICKS = 2;
+    public volatile int swapDelayTicks = 4;
     private int swapTicks;
     /** Black holes placed in a row after every hit (the item has to come back between them). */
     public volatile int holeCount = 1;
@@ -1231,7 +1231,7 @@ public class HuntController {
                 if (swapped) p.getInventory().setSelectedSlot(hs);
                 beginHole(now);
                 if (swapped && holePending) {
-                    swapTicks = SWAP_TICKS;
+                    swapTicks = swapDelayTicks;
                     holeBefore = p.getInventory().getItem(hs).getCount();
                 }
             }
@@ -1340,7 +1340,7 @@ public class HuntController {
             holeUseTick = 0;
             holeTries = 0;
             lastUseAt = 0;
-            swapTicks = SWAP_TICKS;
+            swapTicks = swapDelayTicks;
             return;
         }
         if (swapTicks > 0) { // short pause after the swap, then click
