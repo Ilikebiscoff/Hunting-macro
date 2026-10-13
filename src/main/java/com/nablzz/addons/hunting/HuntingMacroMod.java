@@ -1,7 +1,9 @@
-package com.huntingmacro;
+package com.nablzz.addons.hunting;
 
-import com.huntingmacro.pathing.Planner;
-import com.huntingmacro.pathing.WalkCache;
+import com.nablzz.addons.NablzzAddons;
+import com.nablzz.addons.Updater;
+import com.nablzz.addons.hunting.pathing.Planner;
+import com.nablzz.addons.hunting.pathing.WalkCache;
 import com.mojang.brigadier.arguments.DoubleArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
@@ -12,14 +14,9 @@ import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallba
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
-import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
-import com.mojang.blaze3d.platform.InputConstants;
-import net.minecraft.client.KeyMapping;
 import net.minecraft.resources.Identifier;
-import org.lwjgl.glfw.GLFW;
 import net.minecraft.client.Minecraft;
 import net.minecraft.gizmos.GizmoStyle;
 import net.minecraft.gizmos.Gizmos;
@@ -30,36 +27,29 @@ import net.minecraft.world.phys.Vec3;
 public class HuntingMacroMod implements ClientModInitializer {
     private final WalkCache cache = new WalkCache();
     private HuntController controller;
-    private static net.minecraft.client.KeyMapping openKey;
-    private boolean openGui;
+    private static HuntController instance;
+
+    /** The hunting macro (for the settings screen and the other macro). */
+    public static HuntController controller() {
+        return instance;
+    }
 
     @Override
     public void onInitializeClient() {
         Planner.REACH = 2.6; // melee: stand within sword reach of the zombie, not mining reach
         controller = new HuntController(cache);
+        instance = controller;
         Config.init(controller);
 
-        openKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.huntingmacro.open_gui",
-                InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_RIGHT_SHIFT, KeyMapping.Category.MISC));
-        HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("huntingmacro", "status"),
+        HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("nablzzaddons", "hunt_status"),
                 (graphics, delta) -> HuntHud.render(graphics, delta, controller));
 
-        ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> Updater.onJoin());
         ClientReceiveMessageEvents.GAME.register((message, overlay) -> controller.onChat(message.getString()));
 
         ClientTickEvents.START_CLIENT_TICK.register(mc -> {
             cache.tick(mc);
             controller.tick(mc);
             Session.tick(controller.isRunning());
-            while (openKey.consumeClick()) openGui = true;
-            if (openGui) {
-                if (mc.screen == null && mc.player != null) {
-                    openGui = false;
-                    mc.setScreen(new HuntScreen(controller));
-                } else if (mc.screen != null && !(mc.screen instanceof net.minecraft.client.gui.screens.ChatScreen)) {
-                    openGui = false; // some other screen is open: ignore
-                }
-            }
         });
 
         LevelRenderEvents.BEFORE_GIZMOS.register(context -> {
@@ -79,7 +69,7 @@ public class HuntingMacroMod implements ClientModInitializer {
                 return 1;
             }));
             root.then(lit("gui").executes(c -> {
-                openGui = true;
+                NablzzAddons.openGui(NablzzAddons.HUNT);
                 return 1;
             }));
             root.then(lit("stop").executes(c -> {
@@ -445,7 +435,7 @@ public class HuntingMacroMod implements ClientModInitializer {
                 return 1;
             }));
             root.executes(c -> {
-                openGui = true; // plain /hunt opens the settings screen
+                NablzzAddons.openGui(NablzzAddons.HUNT); // plain /hunt opens the settings screen
                 return 1;
             });
             dispatcher.register(root);

@@ -5,4 +5,4 @@ pluginManagement {
         gradlePluginPortal()
     }
 }
-rootProject.name = 'hunting-macro'
+rootProject.name = 'nablzz-addons'

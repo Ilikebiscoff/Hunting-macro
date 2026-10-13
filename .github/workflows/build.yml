@@ -25,8 +25,8 @@ jobs:
       - name: Upload jar artifact
         uses: actions/upload-artifact@v4
         with:
-          name: hunting-macro
-          path: build/libs/hunting-macro-*[0-9].jar
+          name: nablzz-addons
+          path: build/libs/nablzz-addons-*[0-9].jar
       - name: Publish latest-build release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -35,6 +35,6 @@ jobs:
             gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$id"
           done
           gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/latest-build" || true
-          gh release create latest-build build/libs/hunting-macro-*[0-9].jar \
+          gh release create latest-build build/libs/nablzz-addons-*[0-9].jar \
             --prerelease --title "Latest build" --target "$GITHUB_SHA" \
             --notes "Automatic build of $GITHUB_SHA"

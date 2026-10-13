@@ -1,4 +1,4 @@
-package com.huntingmacro;
+package com.nablzz.addons.mushroom;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
@@ -49,15 +49,6 @@ public class HumanAim {
         omega = 9f + rand.nextFloat() * 6f;
         zeta = 0.78f + rand.nextFloat() * 0.22f;
         holdUntil = time + 0.09 + rand.nextFloat() * 0.13;
-    }
-
-    /** Like {@link #retarget()} but no reaction delay, tiny aiming error and a stiff spring: for quick hits. */
-    public void retargetFast() {
-        offYaw = (float) rand.nextGaussian() * 0.12f;
-        offPitch = (float) rand.nextGaussian() * 0.10f;
-        omega = 24f + rand.nextFloat() * 6f;
-        zeta = 0.9f;
-        holdUntil = time + 0.02;
     }
 
     /** Sets the absolute angles to track (call every tick, cheap). */

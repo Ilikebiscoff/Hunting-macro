@@ -1,4 +1,4 @@
-package com.huntingmacro.pathing;
+package com.nablzz.addons.mushroom.pathing;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.Vec3;
@@ -18,13 +18,13 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Runs on its own thread: groups known mushrooms into clusters, finds for each cluster the standing
- * spot that has the most of them in reach, picks the best cluster by
+ * spot that has the most of them in nuker reach, picks the best cluster by
  * {@code mushrooms / (walk cost + 6)} and paths there. It also plans the following cluster from that
  * spot, so the next leg is ready the moment the current one is cleared.
  */
 public class Planner {
     /** Max eye-to-mushroom distance counted as "in reach" from a standing spot (nuker breaks at 5). */
-    public static volatile double REACH = 4.6;
+    public static final double REACH = 4.6;
     private static final double CLUSTER_LINK = 5.0;
     private static final float COST_LIMIT = 160f;
     private static final int MAX_EXPANSIONS = 150_000;
@@ -41,13 +41,13 @@ public class Planner {
 
     public record Plan(List<Leg> legs) {}
 
-    /** Allow sprint-jumping across 1-block gaps (risky at high speed): /hunt parkour on|off. */
+    /** Allow sprint-jumping across 1-block gaps (risky at high speed): /glowing parkour on|off. */
     public static volatile boolean parkour = false;
     /** Human readable stats of the last finished plan (/glowing path). */
     public static volatile String lastStats = "no plan yet";
 
     private final ExecutorService exec = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "hunting-planner");
+        Thread t = new Thread(r, "glowing-planner");
         t.setDaemon(true);
         return t;
     });
@@ -87,8 +87,6 @@ public class Planner {
     /** Cells next to fences/walls: the follower sways a little, so keep a block away when possible. */
     private static final float TALL_COST = 0.8f;
     private static final float WATER_COST = 1.5f;
-    /** Walking right beside lava: allowed, but only when there is no other way. */
-    private static final float HAZARD_NEAR_COST = 6.0f;
     private static final float GAP_COST = 4.0f;
 
     static Plan compute(WalkCache.Grid g, BlockPos start, List<BlockPos> mushrooms, Set<BlockPos> keep,
@@ -96,9 +94,8 @@ public class Planner {
         long t0 = System.nanoTime();
         List<Leg> legs = new ArrayList<>();
         int s = findStart(g, start);
-        String why = s < 0 ? describeStart(g, start) : "";
         if (s < 0 || mushrooms.isEmpty()) {
-            lastStats = s < 0 ? "start cell not standable (" + why + ")" : "no mushrooms";
+            lastStats = s < 0 ? "start cell not standable" : "no mushrooms";
             return new Plan(legs);
         }
         Search first = dijkstra(g, s, avoid);
@@ -139,17 +136,7 @@ public class Planner {
             int x = p.getX() + t[0], y = p.getY() + t[1], z = p.getZ() + t[2];
             if (g.standable(x, y, z)) return g.index(x, y, z);
         }
-        // nothing around classifies as standable (a slab over lava, an odd block...): the player IS standing here,
-        // so start from the player's own cell and let the neighbours decide where we can go
-        return g.index(p.getX(), p.getY(), p.getZ());
-    }
-
-    private static final String[] CLASS = {"unknown", "air", "solid", "fluid", "low", "tall"};
-
-    private static String describeStart(WalkCache.Grid g, BlockPos p) {
-        int x = p.getX(), y = p.getY(), z = p.getZ();
-        if (g.index(x, y, z) < 0) return "you are outside the path map - it will re-centre in a moment";
-        return "feet " + CLASS[g.get(x, y, z)] + ", head " + CLASS[g.get(x, y + 1, z)] + ", below " + CLASS[g.get(x, y - 1, z)];
+        return -1;
     }
 
     // ---- search ------------------------------------------------------------------------------
@@ -230,7 +217,6 @@ public class Planner {
         if (g.slow(x, y, z)) c += SLOW_COST;
         if (g.tallNear(x, y, z)) c += TALL_COST;
         if (g.waterNear(x, y, z)) c += WATER_COST;
-        if (g.hazardNear(x, y, z)) c += HAZARD_NEAR_COST;
         if (c > COST_LIMIT) return;
         int i = g.index(x, y, z);
         if (i < 0 || c >= dist[i]) return;
@@ -294,7 +280,7 @@ public class Planner {
                     for (int z = minZ - 5; z <= maxZ + 5; z++) {
                         int i = g.index(x, y, z);
                         if (i < 0 || s.dist[i] == Float.POSITIVE_INFINITY) continue;
-                        // (no ban on standing near fluid any more: in a lava cave every spot is near lava)
+                        if (g.waterNear(x, y, z)) continue; // don't end up in the water while mining
                         float eff = s.dist[i] + (g.edge(x, y, z) ? 2f : 0f); // prefer not on a ledge
                         double ex = x + 0.5, ey = y + EYE, ez = z + 0.5;
                         int cover = 0;

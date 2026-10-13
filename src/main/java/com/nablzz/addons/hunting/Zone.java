@@ -1,4 +1,4 @@
-package com.huntingmacro;
+package com.nablzz.addons.hunting;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.scores.DisplaySlot;

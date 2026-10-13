@@ -1,6 +1,17 @@
-package com.huntingmacro;
+package com.nablzz.addons;
 
-import com.huntingmacro.pathing.Planner;
+import com.nablzz.addons.hunting.Config;
+import com.nablzz.addons.hunting.HuntController;
+import com.nablzz.addons.hunting.HuntingMacroMod;
+import com.nablzz.addons.hunting.Session;
+import com.nablzz.addons.mushroom.Failsafe;
+import com.nablzz.addons.mushroom.GlowingMushroomMod;
+import com.nablzz.addons.mushroom.MacroController;
+import com.nablzz.addons.mushroom.MushroomConfig;
+import com.nablzz.addons.mushroom.MushroomTracker;
+import com.nablzz.addons.mushroom.ProfitHud;
+import com.nablzz.addons.mushroom.ProfitTracker;
+import com.nablzz.addons.mushroom.Route;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
@@ -21,20 +32,25 @@ import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 
 /**
- * The settings screen: sidebar with tabs, cards with toggles / sliders / text boxes, a live dashboard.
+ * The settings screen of Nablzz Addons: modules (Hunting, Mushroom, General) along the top, tabs in the sidebar,
+ * cards with toggles / sliders / text boxes, live dashboards.
  * Everything is drawn by hand (no vanilla widgets) so it can have its own look. While it is open the macro
  * pauses (the game does not), so close it to let the macro move.
  */
-public class HuntScreen extends Screen {
+public class NablzzScreen extends Screen {
     private static final int SIDE = 112, HEADER = 38, PAD = 10, HINT_H = 16, ROW_H = 22, TITLE_H = 20;
 
     /** Set by any control that changed a setting; the file is written when the mouse is released / the screen closes. */
     private static boolean dirty;
 
-    private final HuntController c;
+    private final HuntController c = HuntingMacroMod.controller();
+    private final MacroController m = GlowingMushroomMod.controller();
+    private final Failsafe fs = GlowingMushroomMod.failsafe();
+    private final Route rt = GlowingMushroomMod.route();
     private final long openedAt = System.nanoTime();
-    private final List<Tab> tabs = new ArrayList<>();
-    private int tab;
+    private final List<Module> modules = new ArrayList<>();
+    private Module building;
+    private int module;
     private float tabY = -1;
     private long lastFrame;
     private float scroll, scrollTarget, contentH;
@@ -42,13 +58,24 @@ public class HuntScreen extends Screen {
     private Row dragRow;
     private boolean mouseDown;
     private String hint = "";
-    private long confirmResetAt;
+    private long confirmResetAt, confirmClearAt;
     private int wx, wy, ww, wh, vx, vy, vw, vh;
 
-    public HuntScreen(HuntController controller) {
-        super(Component.literal("Hunting Macro"));
-        this.c = controller;
-        buildTabs();
+    public NablzzScreen(int startModule) {
+        super(Component.literal("Nablzz Addons"));
+        buildHunting();
+        buildMushroom();
+        buildGeneral();
+        module = Math.max(0, Math.min(modules.size() - 1, startModule));
+    }
+
+    private Module mod() {
+        return modules.get(module);
+    }
+
+    private Tab cur() {
+        Module md = mod();
+        return md.tabs.get(md.tab);
     }
 
     @Override
@@ -59,20 +86,47 @@ public class HuntScreen extends Screen {
     @Override
     public void onClose() {
         blur();
-        Config.save(c);
+        saveAll();
+        NablzzAddons.rememberModule(module);
         super.onClose();
+    }
+
+    private void saveAll() {
+        Config.save(c);
+        MushroomConfig.save(m, fs);
+        Prefs.save();
     }
 
     // ===================================================================================================
     // tabs
     // ===================================================================================================
 
-    private void buildTabs() {
+    private Module addModule(String name) {
+        Module md = new Module(name);
+        modules.add(md);
+        building = md;
+        return md;
+    }
+
+    private void buildHunting() {
+        Module md = addModule("Hunting");
+        md.running = c::isRunning;
+        md.status = c::phaseLabel;
+        md.toggle = this::toggleHunt;
+
         // ---- Dashboard
         Tab t = tab("Dashboard", "D");
         Section s = t.section("Overview");
-        s.add(new HeroRow());
-        s.add(new TilesRow());
+        s.add(new HeroRow(md, () -> c.isRunning() ? c.phaseLabel() + "  -  " + c.zombiesInView() + " zombies in view"
+                : "Press Start, then close this screen.", "Miner zombie hunting"));
+        s.add(new TilesRow(() -> new String[][]{
+                {"" + c.killCount(), "Kills"},
+                {"" + c.holesPlaced, "Black holes"},
+                {"" + c.shards, "Shards"},
+                {String.format(Locale.ROOT, "%.0f", Session.perHour(c.shards)), "Shards / hour"},
+                {"" + c.hits, "Hits landed"},
+                {Session.clock(), "Run time"},
+        }));
         s = t.section("Black hole");
         s.add(new BarRow("Black hole", "Time left on the hole you placed, or whether the next one is ready.",
                 () -> {
@@ -125,7 +179,8 @@ public class HuntScreen extends Screen {
                 () -> c.mobFilter, v -> c.mobFilter = v, 150, "any zombie"));
         s.add(dslider("Search range", "How far to look for zombies (the pathfinder reaches about 44 blocks).", 20, 150, 5, () -> c.range, v -> c.range = v, "%.0f blocks"));
         s.add(islider("Refresh grey zombies", "Every N kills the already-hit (grey) zombies become targets again. 0 = never.", 0, 20, () -> c.refreshEvery, v -> c.refreshEvery = v, " kills"));
-        s.add(toggle("Gap jumps", "Let the pathfinder jump across one-block gaps.", () -> Planner.parkour, v -> Planner.parkour = v));
+        s.add(toggle("Gap jumps", "Let the pathfinder jump across one-block gaps.", () -> com.nablzz.addons.hunting.pathing.Planner.parkour,
+                v -> com.nablzz.addons.hunting.pathing.Planner.parkour = v));
 
         // ---- Black hole
         t = tab("Black Hole", "B");
@@ -207,8 +262,140 @@ public class HuntScreen extends Screen {
         s.add(toggle("Status panel", "The small panel with status, kills and shards.", () -> Config.hud, v -> Config.hud = v));
         s.add(choice("Panel corner", "Where the status panel sits.", new String[]{"Top left", "Top right", "Bottom left", "Bottom right"},
                 () -> Config.hudCorner, i -> Config.hudCorner = i));
-        s.add(choice("Accent colour", "Colour of this screen and the panel.", Ui.ACCENT_NAMES, () -> Config.accentIdx, i -> {
-            Config.accentIdx = i;
+    }
+
+    private void buildMushroom() {
+        Module md = addModule("Mushroom");
+        md.running = () -> m.isRunning() || fs.wanted();
+        md.status = () -> {
+            if (Failsafe.status != null) return Failsafe.status;
+            if (m.isRunning()) return "Mining";
+            return fs.wanted() ? "Waiting" : "Stopped";
+        };
+        md.toggle = this::toggleMushroom;
+
+        // ---- Dashboard
+        Tab t = tab("Dashboard", "D");
+        Section s = t.section("Overview");
+        s.add(new HeroRow(md, () -> m.isRunning() ? "Mining  -  " + MushroomTracker.MUSHROOMS.size() + " mushrooms known"
+                : (fs.wanted() ? "Waiting for the fail-safe to get you back into the cave." : "Press Start, then close this screen."),
+                "Glowing mushroom mining"));
+        s.add(new TilesRow(() -> new String[][]{
+                {"" + ProfitTracker.glowing, "Glowing mushrooms"},
+                {"" + (ProfitTracker.red + ProfitTracker.brown), "Red / brown"},
+                {coins(ProfitTracker.coins()), "Profit (coins)"},
+                {coins(ProfitTracker.perHour()), "Coins / hour"},
+                {"" + MushroomTracker.MUSHROOMS.size(), "Mushrooms known"},
+                {clock(ProfitTracker.macroMs), "Run time"},
+        }));
+        s = t.section("Status");
+        s.add(new InfoRow("Fail-safe", "Reconnects, rejoins SkyBlock and warps back when something goes wrong.",
+                () -> Failsafe.status != null ? Failsafe.status : (fs.enabled ? "armed" : "off"), Ui.MUTED));
+        s.add(new InfoRow("In the cave", "Whether the sidebar shows the cave name.",
+                () -> fs.inZone(Minecraft.getInstance()) ? "yes" : "no", Ui.MUTED));
+        s.add(new InfoRow("Route", "Recorded patrol waypoints.", () -> rt.size() + " waypoints  -  " + m.broken + " blocks broken", Ui.MUTED));
+        s.add(new ButtonRow("Reset profit", "Sets the counts, profit and the clock back to zero.", "Reset", false, ProfitTracker::reset));
+
+        // ---- Mining
+        t = tab("Mining", "M");
+        s = t.section("Behaviour");
+        s.add(choice("Mode", "Path: walk to the densest mushroom groups. Route: only walk the recorded route.",
+                new String[]{"Path", "Route"}, () -> m.pathMode ? 0 : 1, i -> m.pathMode = i == 0));
+        s.add(toggle("Nuker", "Break everything in reach without aiming. Off = aimed mining.", () -> m.nuker, v -> m.nuker = v));
+        s.add(dslider("Warp when nothing to reach", "Seconds without a reachable mushroom before /warp glowing. 0 = off.", 0, 60, 1,
+                () -> m.noMushroomWarpMs / 1000.0, v -> m.noMushroomWarpMs = (long) (v * 1000), "%.0f s"));
+        s.add(toggle("Gap jumps", "Let the pathfinder sprint-jump across one-block gaps.", () -> com.nablzz.addons.mushroom.pathing.Planner.parkour,
+                v -> com.nablzz.addons.mushroom.pathing.Planner.parkour = v));
+        s = t.section("Detection");
+        s.add(choice("Marker particle", "Which particles mark a glowing mushroom. Use /glowing scan to find others.",
+                new String[]{"Entity effect", "All potion types"},
+                () -> MushroomTracker.markers.equals(MushroomTracker.POTION_PARTICLES) ? 1 : 0,
+                i -> MushroomTracker.markers = i == 1 ? MushroomTracker.POTION_PARTICLES : MushroomTracker.DEFAULT_PARTICLES));
+        s = t.section("Route");
+        s.add(new InfoRow("Waypoints", "Patrol points used when no mushroom is known (and in route mode).", () -> "" + rt.size(), Ui.TEXT));
+        s.add(new ButtonRow("Add waypoint here", "Records the spot you are standing on.", "Add", true, () -> {
+            var p = Minecraft.getInstance().player;
+            if (p != null) rt.add(p.getX(), p.getY(), p.getZ());
+        }));
+        s.add(new ButtonRow("Remove last waypoint", "Undo the last recorded point.", "Undo", false, rt::removeLast));
+        s.add(new ButtonRow("Clear route", "Deletes every waypoint.", "Clear", false, () -> {
+            long now = System.currentTimeMillis();
+            if (now - confirmClearAt < 3000) {
+                rt.clear();
+                confirmClearAt = 0;
+            } else {
+                confirmClearAt = now;
+            }
+        }) {
+            @Override
+            String buttonText() {
+                return System.currentTimeMillis() - confirmClearAt < 3000 ? "Click again" : "Clear";
+            }
+        });
+
+        // ---- Fail-safe
+        t = tab("Fail-safe", "F");
+        s = t.section("Recovery");
+        s.add(toggle("Fail-safe", "Reconnect after a kick, rejoin SkyBlock, /warp glowing after dying or leaving the cave.", () -> fs.enabled, v -> fs.enabled = v));
+        s.add(text("Cave name", "Sidebar text that means you are in the cave.", () -> fs.zoneText, v -> fs.zoneText = v, 150, "glowing"));
+        s = t.section("Avoid list");
+        s.add(new InfoRow("Players", "Names you never want to share a lobby with.",
+                () -> fs.avoid.isEmpty() ? "empty" : String.join(", ", fs.avoid.list()), Ui.MUTED));
+        s.add(new AddRow("Add player", "Type a name and press Add. The macro swaps lobby if one of them is in the tab list.", "name", "Add", v -> {
+            if (!v.isEmpty()) fs.avoid.add(v);
+        }));
+        s.add(new ButtonRow("Clear the list", "Removes every name.", "Clear", false, fs.avoid::clear));
+        s.add(new ButtonRow("Check this lobby", "Looks for listed players in the tab list now.", "Check", false, () -> {
+            String who = fs.avoid.scan(Minecraft.getInstance());
+            flash(who == null ? "Nobody from the list is in this lobby." : who + " is in this lobby!");
+        }));
+
+        // ---- Display
+        t = tab("Display", "V");
+        s = t.section("Overlays");
+        s.add(toggle("Mushroom boxes", "Green boxes on glowing mushrooms, yellow on the one being mined, plus the planned path.",
+                () -> GlowingMushroomMod.highlight, v -> GlowingMushroomMod.highlight = v));
+        s.add(toggle("Profit panel", "The small panel with time, mushrooms and coins (top left).", () -> ProfitHud.enabled, v -> ProfitHud.enabled = v));
+        s = t.section("Settings");
+        s.add(new ButtonRow("Reset mushroom settings", "Puts every mushroom setting back to its default (route and avoid list stay).", "Defaults", false, () -> {
+            long now = System.currentTimeMillis();
+            if (now - confirmResetAt < 3000) {
+                MushroomConfig.resetToDefaults(m, fs);
+                confirmResetAt = 0;
+            } else {
+                confirmResetAt = now;
+            }
+        }) {
+            @Override
+            String buttonText() {
+                return System.currentTimeMillis() - confirmResetAt < 3000 ? "Click again" : "Defaults";
+            }
+        });
+    }
+
+    private void buildGeneral() {
+        Module md = addModule("General");
+        md.running = () -> c.isRunning() || m.isRunning();
+        md.status = () -> c.isRunning() ? "Hunting" : (m.isRunning() ? "Mushroom" : "Idle");
+
+        // ---- Overview
+        Tab t = tab("Overview", "O");
+        Section s = t.section("Macros");
+        s.add(new InfoRow("Hunting", "Diamond Reserve miner zombies.", () -> c.isRunning() ? "running - " + c.phaseLabel() : "stopped",
+                Ui.TEXT));
+        s.add(new InfoRow("Mushroom", "Glowing mushroom mining.", () -> m.isRunning() ? "running" : (fs.wanted() ? "waiting" : "stopped"), Ui.TEXT));
+        s.add(new ButtonRow("Stop everything", "Stops both macros and the mushroom fail-safe.", "Stop all", false, () -> {
+            Minecraft mc = Minecraft.getInstance();
+            c.stop(mc);
+            fs.end(mc);
+        }));
+        s.add(new NoteRow("Only one macro runs at a time: starting one stops the other."));
+
+        // ---- Appearance
+        t = tab("Appearance", "A");
+        s = t.section("Look");
+        s.add(choice("Accent colour", "Colour of this screen and the panels.", Ui.ACCENT_NAMES, () -> Prefs.accentIdx, i -> {
+            Prefs.accentIdx = i;
             Ui.setAccent(i);
         }));
 
@@ -220,9 +407,21 @@ public class HuntScreen extends Screen {
         s.add(new ButtonRow("Check for update", "Looks at the latest build on GitHub.", "Check", true, () -> Updater.run(false, false)));
         s.add(new ButtonRow("Download update", "Downloads the newest jar into your mods folder (hash-checked). Restart the game afterwards.", "Download", true, () -> Updater.run(false, true)));
         s = t.section("About");
-        s.add(new NoteRow("Open this screen with the \"Hunting Macro\" key (Right Shift by default, change it in Controls) or /hunt gui. "
-                + "The macro pauses while this screen is open - close it to let it run. /hunt help lists every command."));
+        s.add(new NoteRow("Open this screen with Right Shift (change it in Controls under \"Nablzz Addons\"), /nablzz, /hunt or /glowing. "
+                + "The running macro pauses while this screen is open - close it to let it run. /hunt help and /glowing help list every command."));
         s.add(new NoteRow("Heads-up: automating the game on Hypixel breaks their rules and can get your account banned. Use at your own risk."));
+    }
+
+    private static String coins(double v) {
+        if (ProfitTracker.glowingPrice < 0) return "?";
+        if (v >= 1_000_000) return String.format(Locale.ROOT, "%.2fM", v / 1_000_000);
+        if (v >= 1_000) return String.format(Locale.ROOT, "%.1fk", v / 1_000);
+        return String.format(Locale.ROOT, "%.0f", v);
+    }
+
+    private static String clock(long ms) {
+        long sec = ms / 1000;
+        return String.format(Locale.ROOT, "%02d:%02d:%02d", sec / 3600, (sec / 60) % 60, sec % 60);
     }
 
     private double holeLeft() {
@@ -289,25 +488,25 @@ public class HuntScreen extends Screen {
         int lx = wx + 12, ly = wy + 12;
         Ui.rr(g, lx, ly, 22, 22, 6, Ui.accent);
         Ui.rr(g, lx + 1, ly + 1, 20, 10, 5, Ui.withAlpha(0xFFFFFF, 40));
-        Ui.textC(g, "H", lx + 11, ly + 7, 0xFFFFFFFF);
-        Ui.bold(g, "Hunting", lx + 28, ly + 2, Ui.TEXT);
-        Ui.text(g, "Macro", lx + 28, ly + 12, Ui.accent);
+        Ui.textC(g, "N", lx + 11, ly + 7, 0xFFFFFFFF);
+        Ui.bold(g, "Nablzz", lx + 28, ly + 2, Ui.TEXT);
+        Ui.text(g, "Addons", lx + 28, ly + 12, Ui.accent);
 
         int ty = wy + 48;
         int th = 24;
-        float target = ty + tab * (th + 3);
+        float target = ty + mod().tab * (th + 3);
         if (tabY < 0) tabY = target;
         tabY = Ui.approach(tabY, target, 700f);
         // moving selection pill
         Ui.rr(g, wx + 8, (int) tabY, SIDE - 14, th, 5, Ui.mix(Ui.SIDEBAR, Ui.accent, 0.20f));
         Ui.rr(g, wx + 8, (int) tabY + 4, 2, th - 8, 1, Ui.accent);
-        for (int i = 0; i < tabs.size(); i++) {
-            Tab t = tabs.get(i);
+        for (int i = 0; i < mod().tabs.size(); i++) {
+            Tab t = mod().tabs.get(i);
             int y = ty + i * (th + 3);
             boolean hov = Ui.in(mx, my, wx + 8, y, SIDE - 14, th);
             t.hov = Ui.approach(t.hov, hov ? 1f : 0f, 8f);
-            if (i != tab && t.hov > 0) Ui.rr(g, wx + 8, y, SIDE - 14, th, 5, Ui.withAlpha(0xFFFFFF, (int) (10 * t.hov)));
-            boolean sel = i == tab;
+            if (i != mod().tab && t.hov > 0) Ui.rr(g, wx + 8, y, SIDE - 14, th, 5, Ui.withAlpha(0xFFFFFF, (int) (10 * t.hov)));
+            boolean sel = i == mod().tab;
             int ic = Ui.mix(0xFF1A1E27, Ui.accent, sel ? 0.9f : 0.15f + 0.2f * t.hov);
             Ui.rr(g, wx + 16, y + 5, 14, 14, 4, ic);
             Ui.textC(g, t.letter, wx + 23, y + 8, sel ? 0xFFFFFFFF : Ui.MUTED);
@@ -325,32 +524,63 @@ public class HuntScreen extends Screen {
         return closeX() - 8 - 70;
     }
 
-    private void drawHeader(GuiGraphicsExtractor g, int mx, int my) {
-        Tab t = tabs.get(tab);
-        Ui.bold(g, t.name, vx, wy + 14, Ui.TEXT);
-        Ui.fill(g, wx + SIDE + 1, wy + HEADER, ww - SIDE - 2, 1, Ui.LINE);
+    private int navW(int i) {
+        return Ui.tw(modules.get(i).name) + 22;
+    }
 
-        boolean run = c.isRunning();
+    private int navX(int i) {
+        int x = vx;
+        for (int k = 0; k < i; k++) x += navW(k) + 4;
+        return x;
+    }
+
+    private void drawHeader(GuiGraphicsExtractor g, int mx, int my) {
+        Ui.fill(g, wx + SIDE + 1, wy + HEADER, ww - SIDE - 2, 1, Ui.LINE);
+        Module md = mod();
+        boolean run = md.running.getAsBoolean();
+
+        // module navigation
+        for (int i = 0; i < modules.size(); i++) {
+            int nx = navX(i), nw = navW(i);
+            boolean sel = i == module, hov = Ui.in(mx, my, nx, wy + 8, nw, HEADER - 8);
+            Module n = modules.get(i);
+            n.hov = Ui.approach(n.hov, hov ? 1f : 0f, 8f);
+            if (hov && !sel) Ui.rr(g, nx, wy + 8, nw, 22, 5, Ui.withAlpha(0xFFFFFF, 12));
+            if (sel) {
+                Ui.rr(g, nx, wy + 8, nw, 22, 5, Ui.mix(Ui.WINDOW, Ui.accent, 0.16f));
+                Ui.rr(g, nx + 6, wy + HEADER - 3, nw - 12, 2, 1, Ui.accent);
+            }
+            int dot = n.running.getAsBoolean() ? Ui.GOOD : Ui.DIM;
+            Ui.rr(g, nx + 7, wy + 17, 4, 4, 2, dot);
+            Ui.text(g, n.name, nx + 15, wy + 15, sel ? Ui.TEXT : Ui.mix(Ui.MUTED, Ui.TEXT, n.hov));
+        }
+
         // close
         int cx = closeX(), cy = wy + 10;
         boolean hc = Ui.in(mx, my, cx, cy, 14, 14);
         Ui.rr(g, cx, cy, 14, 14, 4, hc ? 0xFF3A2024 : Ui.CARD);
         Ui.textC(g, "x", cx + 7, cy + 3, hc ? Ui.BAD : Ui.MUTED);
-        // start / stop
-        int bx = startX(), by = wy + 8;
-        boolean hb = Ui.in(mx, my, bx, by, 70, 18);
-        int base = run ? Ui.BAD : Ui.GOOD;
-        Ui.rr(g, bx, by, 70, 18, 5, hb ? Ui.mix(base, 0xFFFFFFFF, 0.15f) : Ui.mix(base, 0xFF000000, 0.35f));
-        Ui.rr(g, bx + 1, by + 1, 68, 8, 4, Ui.withAlpha(0xFFFFFF, 22));
-        Ui.textC(g, run ? "Stop" : "Start", bx + 35, by + 5, 0xFFFFFFFF);
-        // status pill
-        String st = c.phaseLabel();
+        int rightEdge = cx - 8;
+        // start / stop (not for the General module)
+        if (md.toggle != null) {
+            int bx = startX(), by = wy + 8;
+            boolean hb = Ui.in(mx, my, bx, by, 70, 18);
+            int base = run ? Ui.BAD : Ui.GOOD;
+            Ui.rr(g, bx, by, 70, 18, 5, hb ? Ui.mix(base, 0xFFFFFFFF, 0.15f) : Ui.mix(base, 0xFF000000, 0.35f));
+            Ui.rr(g, bx + 1, by + 1, 68, 8, 4, Ui.withAlpha(0xFFFFFF, 22));
+            Ui.textC(g, run ? "Stop" : "Start", bx + 35, by + 5, 0xFFFFFFFF);
+            rightEdge = bx - 8;
+        }
+        // status pill (only when there is room)
+        String st = md.status.get();
         int pw = Ui.tw(st) + 24;
-        int px = bx - 8 - pw;
-        Ui.rr(g, px, wy + 10, pw, 14, 7, Ui.CARD);
-        float pulse = run ? 0.65f + 0.35f * (float) Math.sin(System.currentTimeMillis() / 220.0) : 1f;
-        Ui.rr(g, px + 7, wy + 14, 6, 6, 3, Ui.mix(Ui.CARD, run ? Ui.GOOD : Ui.BAD, pulse));
-        Ui.text(g, st, px + 17, wy + 13, Ui.TEXT);
+        int px = rightEdge - pw;
+        if (px > navX(modules.size()) + 4) {
+            Ui.rr(g, px, wy + 10, pw, 14, 7, Ui.CARD);
+            float pulse = run ? 0.65f + 0.35f * (float) Math.sin(System.currentTimeMillis() / 220.0) : 1f;
+            Ui.rr(g, px + 7, wy + 14, 6, 6, 3, Ui.mix(Ui.CARD, run ? Ui.GOOD : Ui.BAD, pulse));
+            Ui.text(g, st, px + 17, wy + 13, Ui.TEXT);
+        }
     }
 
     private void layoutTab(Tab t) {
@@ -370,7 +600,7 @@ public class HuntScreen extends Screen {
     }
 
     private void drawContent(GuiGraphicsExtractor g, int mx, int my) {
-        Tab t = tabs.get(tab);
+        Tab t = cur();
         layoutTab(t);
         float maxScroll = Math.max(0, contentH - vh);
         scrollTarget = Math.max(0, Math.min(maxScroll, scrollTarget));
@@ -434,23 +664,34 @@ public class HuntScreen extends Screen {
             onClose();
             return true;
         }
-        if (Ui.in(mx, my, startX(), wy + 8, 70, 18)) {
-            toggleRun();
+        if (mod().toggle != null && Ui.in(mx, my, startX(), wy + 8, 70, 18)) {
+            mod().toggle.run();
             return true;
         }
+        for (int i = 0; i < modules.size(); i++) {
+            if (Ui.in(mx, my, navX(i), wy + 8, navW(i), HEADER - 8)) {
+                blur();
+                if (module != i) {
+                    module = i;
+                    scroll = scrollTarget = 0;
+                    tabY = -1;
+                }
+                return true;
+            }
+        }
         int ty = wy + 48;
-        for (int i = 0; i < tabs.size(); i++) {
+        for (int i = 0; i < mod().tabs.size(); i++) {
             if (Ui.in(mx, my, wx + 8, ty + i * 27, SIDE - 14, 24)) {
                 blur();
-                if (tab != i) {
-                    tab = i;
+                if (mod().tab != i) {
+                    mod().tab = i;
                     scroll = scrollTarget = 0;
                 }
                 return true;
             }
         }
         if (Ui.in(mx, my, vx, vy, vw, vh)) {
-            for (Section s : tabs.get(tab).sections) {
+            for (Section s : cur().sections) {
                 for (Row r : s.rows) {
                     if (my < r.y || my >= r.y + r.h) continue;
                     if (r.down(mx, my, btn)) {
@@ -492,6 +733,7 @@ public class HuntScreen extends Screen {
         int key = e.key();
         if (focus != null) {
             if (key == 256 || key == 257 || key == 335) { // esc / enter: leave the text box
+                if (key != 256 && focus.enter != null) focus.enter.run();
                 blur();
                 return true;
             }
@@ -519,14 +761,26 @@ public class HuntScreen extends Screen {
         return super.charTyped(e);
     }
 
-    private void toggleRun() {
+    private void toggleHunt() {
         Minecraft mc = Minecraft.getInstance();
         if (c.isRunning()) {
             c.stop(mc);
         } else {
-            Config.save(c);
+            saveAll();
             if (c.start(mc)) onClose(); // the macro pauses while a screen is open
             else flash("Could not start - see the chat for why (hotbar item names?)");
+        }
+    }
+
+    private void toggleMushroom() {
+        Minecraft mc = Minecraft.getInstance();
+        if (m.isRunning() || fs.wanted()) {
+            fs.end(mc);
+        } else {
+            saveAll();
+            fs.begin(mc);
+            if (m.isRunning() || fs.wanted()) onClose();
+            else flash("Could not start - see the chat for why (shears in the hotbar?)");
         }
     }
 
@@ -549,7 +803,7 @@ public class HuntScreen extends Screen {
     private void saveIfDirty() {
         if (dirty) {
             dirty = false;
-            Config.save(c);
+            saveAll();
         }
     }
 
@@ -559,8 +813,22 @@ public class HuntScreen extends Screen {
 
     private Tab tab(String name, String letter) {
         Tab t = new Tab(name, letter);
-        tabs.add(t);
+        building.tabs.add(t);
         return t;
+    }
+
+    private static final class Module {
+        final String name;
+        final List<Tab> tabs = new ArrayList<>();
+        int tab;
+        float hov;
+        java.util.function.BooleanSupplier running = () -> false;
+        Supplier<String> status = () -> "";
+        Runnable toggle;
+
+        Module(String name) {
+            this.name = name;
+        }
     }
 
     private static final class Tab {
@@ -1024,8 +1292,15 @@ public class HuntScreen extends Screen {
 
     /** Dashboard: big status + start/stop. */
     private final class HeroRow extends Row {
-        HeroRow() {
+        final Module owner;
+        final Supplier<String> sub;
+        final String title;
+
+        HeroRow(Module owner, Supplier<String> sub, String title) {
             super("", "Current state of the macro.");
+            this.owner = owner;
+            this.sub = sub;
+            this.title = title;
             h = 54;
         }
 
@@ -1036,12 +1311,11 @@ public class HuntScreen extends Screen {
 
         @Override
         void draw(GuiGraphicsExtractor g, int mx, int my, boolean hovered) {
-            boolean run = c.isRunning();
+            boolean run = owner.running.getAsBoolean();
             float pulse = run ? 0.6f + 0.4f * (float) Math.sin(System.currentTimeMillis() / 250.0) : 1f;
             Ui.rr(g, x, y + 8, 8, 8, 4, Ui.mix(Ui.CARD, run ? Ui.GOOD : Ui.BAD, pulse));
             Ui.big(g, run ? "Running" : "Stopped", x + 16, y + 6, 1.6f, run ? Ui.GOOD : Ui.TEXT);
-            String sub = run ? c.phaseLabel() + "  -  " + c.zombiesInView() + " zombies in view" : "Press Start, then close this screen.";
-            Ui.text(g, Ui.fit(sub, w - 130), x + 16, y + 28, Ui.MUTED);
+            Ui.text(g, Ui.fit(title + "  -  " + sub.get(), w - 130), x + 16, y + 28, Ui.MUTED);
             int bw = 96, bx = x + w - bw, by = y + 8;
             boolean hb = Ui.in(mx, my, bx, by, bw, 26);
             int base = run ? Ui.BAD : Ui.GOOD;
@@ -1053,15 +1327,18 @@ public class HuntScreen extends Screen {
         @Override
         boolean down(double mx, double my, int button) {
             if (!Ui.in(mx, my, x + w - 96, y + 8, 96, 26)) return false;
-            toggleRun();
+            owner.toggle.run();
             return true;
         }
     }
 
     /** Dashboard: six number tiles. */
     private final class TilesRow extends Row {
-        TilesRow() {
+        final Supplier<String[][]> tiles;
+
+        TilesRow(Supplier<String[][]> tiles) {
             super("", "Counters since the macro was last reset.");
+            this.tiles = tiles;
             h = 84;
         }
 
@@ -1072,22 +1349,78 @@ public class HuntScreen extends Screen {
 
         @Override
         void draw(GuiGraphicsExtractor g, int mx, int my, boolean hovered) {
-            String[][] tiles = {
-                    {"" + c.killCount(), "Kills"},
-                    {"" + c.holesPlaced, "Black holes"},
-                    {"" + c.shards, "Shards"},
-                    {String.format(Locale.ROOT, "%.0f", Session.perHour(c.shards)), "Shards / hour"},
-                    {"" + c.hits, "Hits landed"},
-                    {Session.clock(), "Run time"},
-            };
+            String[][] t = tiles.get();
             int gap = 6, tw = (w - gap * 2) / 3, th = 36;
-            for (int i = 0; i < tiles.length; i++) {
+            for (int i = 0; i < t.length; i++) {
                 int tx = x + (i % 3) * (tw + gap), ty = y + 4 + (i / 3) * (th + gap);
                 Ui.rrb(g, tx, ty, tw, th, 5, Ui.FIELD, Ui.LINE);
                 Ui.rr(g, tx + 6, ty + 8, 2, th - 16, 1, Ui.accent);
-                Ui.textShadow(g, tiles[i][0], tx + 14, ty + 8, Ui.TEXT);
-                Ui.text(g, tiles[i][1], tx + 14, ty + 21, Ui.MUTED);
+                Ui.textShadow(g, t[i][0], tx + 14, ty + 8, Ui.TEXT);
+                Ui.text(g, t[i][1], tx + 14, ty + 21, Ui.MUTED);
             }
+        }
+    }
+
+    /** A text box with an "Add" button next to it. */
+    private final class AddRow extends Row {
+        final Field field;
+        final String buttonLabel;
+        final Consumer<String> action;
+        String buf = "";
+
+        AddRow(String label, String hint, String placeholder, String buttonLabel, Consumer<String> action) {
+            super(label, hint);
+            this.buttonLabel = buttonLabel;
+            this.action = action;
+            this.field = new Field(false, 110, () -> buf, v -> buf = v, placeholder);
+            this.field.enter = this::submit;
+        }
+
+        int bw() {
+            return Ui.tw(buttonLabel) + 24;
+        }
+
+        @Override
+        void draw(GuiGraphicsExtractor g, int mx, int my, boolean hovered) {
+            drawLabel(g);
+            int bw = bw(), bx = x + w - bw, by = y + 3;
+            boolean hb = Ui.in(mx, my, bx, by, bw, 16);
+            Ui.rr(g, bx, by, bw, 16, 4, hb ? Ui.mix(Ui.accent, 0xFFFFFFFF, 0.18f) : Ui.accent);
+            Ui.rr(g, bx + 1, by + 1, bw - 2, 7, 3, Ui.withAlpha(0xFFFFFF, 18));
+            Ui.textC(g, buttonLabel, bx + bw / 2, by + 4, 0xFFFFFFFF);
+            field.x = bx - 6 - field.w;
+            field.y = y + 3;
+            field.draw(g, mx, my);
+        }
+
+        private void submit() {
+            action.accept(buf.trim());
+            buf = "";
+            field.text = "";
+            field.caret = 0;
+            field.sel = false;
+        }
+
+        @Override
+        boolean down(double mx, double my, int button) {
+            if (mx >= x + w - bw()) {
+                submit();
+                return true;
+            }
+            if (!field.hit(mx, my)) return false;
+            if (focus != field) {
+                blur();
+                focus = field;
+                field.focused = true;
+                field.sel = false;
+            }
+            field.click(mx);
+            return true;
+        }
+
+        @Override
+        boolean ownsFocus(Field f) {
+            return f == field;
         }
     }
 
@@ -1102,6 +1435,8 @@ public class HuntScreen extends Screen {
         String text = "";
         int caret, x, y;
         boolean focused, sel, bad;
+        /** Run when Enter is pressed in the box (the "Add" boxes). */
+        Runnable enter;
 
         Field(boolean numeric, int w, Supplier<String> get, Consumer<String> set, String placeholder) {
             this.numeric = numeric;

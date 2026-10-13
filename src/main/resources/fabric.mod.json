@@ -1,13 +1,16 @@
 {
   "schemaVersion": 1,
-  "id": "huntingmacro",
+  "id": "nablzzaddons",
   "version": "${version}",
-  "name": "Hunting Macro",
-  "description": "Hits Diamond Reserve miner zombies once, drops a black hole and paths to the next one.",
+  "name": "Nablzz Addons",
+  "description": "Hypixel SkyBlock macros in one mod: Diamond Reserve miner zombie hunting and glowing mushroom mining, with one settings screen.",
   "environment": "client",
   "entrypoints": {
-    "client": ["com.huntingmacro.HuntingMacroMod"]
+    "client": ["com.nablzz.addons.NablzzAddons"]
   },
+  "mixins": [
+    { "config": "nablzzaddons.mixins.json", "environment": "client" }
+  ],
   "depends": {
     "fabricloader": ">=0.18.0",
     "minecraft": "26.1.*",

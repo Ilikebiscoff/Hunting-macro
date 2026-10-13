@@ -1,6 +1,6 @@
-package com.huntingmacro;
+package com.nablzz.addons.hunting;
 
-import com.huntingmacro.pathing.Planner;
+import com.nablzz.addons.hunting.pathing.Planner;
 import net.fabricmc.loader.api.FabricLoader;
 
 import java.io.IOException;
@@ -15,16 +15,15 @@ import java.util.Properties;
  * {@code config/huntingmacro_settings.properties} so it is still there after a restart.
  * The learned black hole timings live in their own file ({@code huntingmacro.properties}).
  */
-final class Config {
+public final class Config {
     private Config() {}
 
     /** ESP boxes + path line in the world. */
-    static volatile boolean highlight = true;
+    public static volatile boolean highlight = true;
     /** Status panel on the screen. */
-    static volatile boolean hud = true;
+    public static volatile boolean hud = true;
     /** 0 top left, 1 top right, 2 bottom left, 3 bottom right. */
-    static volatile int hudCorner = 0;
-    static volatile int accentIdx = 0;
+    public static volatile int hudCorner = 1;
 
     private static Properties defaults;
 
@@ -33,7 +32,7 @@ final class Config {
     }
 
     /** Call once at start: remembers the built-in values (for "reset to defaults"), then loads the saved file. */
-    static void init(HuntController c) {
+    public static void init(HuntController c) {
         defaults = toProps(c);
         Path f = file();
         if (Files.isRegularFile(f)) {
@@ -45,10 +44,9 @@ final class Config {
                 // unreadable file: keep the defaults
             }
         }
-        Ui.setAccent(accentIdx);
     }
 
-    static void save(HuntController c) {
+    public static void save(HuntController c) {
         try (OutputStream out = Files.newOutputStream(file())) {
             toProps(c).store(out, "Hunting Macro settings");
         } catch (IOException ignored) {
@@ -56,9 +54,8 @@ final class Config {
         }
     }
 
-    static void resetToDefaults(HuntController c) {
+    public static void resetToDefaults(HuntController c) {
         if (defaults != null) apply(c, defaults);
-        Ui.setAccent(accentIdx);
         save(c);
     }
 
@@ -101,7 +98,6 @@ final class Config {
         p.setProperty("highlight", "" + highlight);
         p.setProperty("hud", "" + hud);
         p.setProperty("hudCorner", "" + hudCorner);
-        p.setProperty("accent", "" + accentIdx);
         return p;
     }
 
@@ -147,7 +143,6 @@ final class Config {
         highlight = bool(p, "highlight", highlight);
         hud = bool(p, "hud", hud);
         hudCorner = (int) clamp(num(p, "hudCorner", hudCorner), 0, 3);
-        accentIdx = (int) clamp(num(p, "accent", accentIdx), 0, Ui.ACCENTS.length - 1);
     }
 
     private static String str(Properties p, String k, String d) {

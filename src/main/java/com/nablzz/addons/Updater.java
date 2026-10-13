@@ -1,4 +1,4 @@
-package com.huntingmacro;
+package com.nablzz.addons;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -38,9 +38,9 @@ import java.util.zip.ZipFile;
 public final class Updater {
     private Updater() {}
 
-    private static final String MOD_ID = "huntingmacro";
+    private static final String MOD_ID = "nablzzaddons";
     private static final String API = "https://api.github.com/repos/Ilikebiscoff/Hunting-macro/releases/tags/latest-build";
-    private static final Pattern ASSET = Pattern.compile("^hunting-macro-(\\d+)\\.(\\d+)\\.(\\d+)\\.jar$");
+    private static final Pattern ASSET = Pattern.compile("^nablzz-addons-(\\d+)\\.(\\d+)\\.(\\d+)\\.jar$");
     private static final long MAX_BYTES = 32L * 1024 * 1024;
 
     private static final HttpClient HTTP = HttpClient.newBuilder()
@@ -76,7 +76,7 @@ public final class Updater {
             } finally {
                 busy.set(false);
             }
-        }, "hunting-updater");
+        }, "nablzz-updater");
         t.setDaemon(true);
         t.start();
     }
@@ -113,7 +113,7 @@ public final class Updater {
     private static Latest fetchLatest() throws Exception {
         HttpRequest req = HttpRequest.newBuilder(URI.create(API))
                 .header("Accept", "application/vnd.github+json")
-                .header("User-Agent", "hunting-macro-updater")
+                .header("User-Agent", "nablzz-addons-updater")
                 .timeout(Duration.ofSeconds(15)).GET().build();
         HttpResponse<String> r = HTTP.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
         if (r.statusCode() != 200) throw new IllegalStateException("GitHub answered HTTP " + r.statusCode());
@@ -127,7 +127,7 @@ public final class Updater {
             return new Latest(name, Integer.parseInt(m.group(3)), a.get("size").getAsLong(), digest,
                     a.get("browser_download_url").getAsString());
         }
-        throw new IllegalStateException("no hunting-macro jar on the latest-build release");
+        throw new IllegalStateException("no nablzz-addons jar on the latest-build release");
     }
 
     private static void install(Latest l, Path currentJar) throws Exception {
@@ -142,7 +142,7 @@ public final class Updater {
         }
 
         HttpRequest req = HttpRequest.newBuilder(URI.create(l.url()))
-                .header("User-Agent", "hunting-macro-updater")
+                .header("User-Agent", "nablzz-addons-updater")
                 .timeout(Duration.ofMinutes(2)).GET().build();
         HttpResponse<InputStream> r = HTTP.send(req, HttpResponse.BodyHandlers.ofInputStream());
         try (InputStream in = r.body()) {
@@ -208,14 +208,14 @@ public final class Updater {
             } catch (Exception ignored) {
                 // nothing more we can do while the JVM is going down
             }
-        }, "hunting-updater-cleanup"));
+        }, "nablzz-updater-cleanup"));
     }
 
     private static ModContainer container() {
         return FabricLoader.getInstance().getModContainer(MOD_ID).orElse(null);
     }
 
-    static String currentVersion() {
+    public static String currentVersion() {
         ModContainer c = container();
         return c == null ? "unknown" : c.getMetadata().getVersion().getFriendlyString();
     }
@@ -237,15 +237,15 @@ public final class Updater {
     }
 
     /** Last thing the updater said (shown in the settings screen). */
-    static volatile String lastMessage = "";
+    public static volatile String lastMessage = "";
 
-    static String shortVersion() {
+    public static String shortVersion() {
         return "v" + currentVersion();
     }
 
     private static void say(String s) {
         lastMessage = s;
         Minecraft mc = Minecraft.getInstance();
-        mc.execute(() -> Chat.msg(s));
+        mc.execute(() -> Notify.msg(s));
     }
 }

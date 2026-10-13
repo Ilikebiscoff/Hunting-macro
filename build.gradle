@@ -3,7 +3,7 @@ plugins {
 }
 
 version = project.mod_version
-group = 'com.huntingmacro'
+group = 'com.nablzz.addons'
 base.archivesName = project.archives_base_name
 
 dependencies {

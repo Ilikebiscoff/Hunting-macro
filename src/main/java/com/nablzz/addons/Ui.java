@@ -1,50 +1,50 @@
-package com.huntingmacro;
+package com.nablzz.addons;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 
 /** Small drawing toolkit for the settings screen and the HUD: rounded rectangles, colour blending, text helpers. */
-final class Ui {
+public final class Ui {
     private Ui() {}
 
     /** Global fade (0..1) for the open animation; every colour goes through {@link #mul}. */
-    static float alpha = 1f;
+    public static float alpha = 1f;
     /** Seconds since the last frame (set by the screen), for frame-rate independent animation. */
-    static float dt = 0.016f;
+    public static float dt = 0.016f;
 
-    static final String[] ACCENT_NAMES = {"Violet", "Cyan", "Emerald", "Amber", "Rose"};
-    static final int[] ACCENTS = {0xFF8B5CF6, 0xFF22D3EE, 0xFF34D399, 0xFFF59E0B, 0xFFF43F5E};
-    static int accent = ACCENTS[0];
+    public static final String[] ACCENT_NAMES = {"Violet", "Cyan", "Emerald", "Amber", "Rose"};
+    public static final int[] ACCENTS = {0xFF8B5CF6, 0xFF22D3EE, 0xFF34D399, 0xFFF59E0B, 0xFFF43F5E};
+    public static int accent = ACCENTS[0];
 
-    static final int WINDOW = 0xF4101218;
-    static final int SIDEBAR = 0xF40B0D11;
-    static final int CARD = 0xFF171A21;
-    static final int CARD_HI = 0xFF1E222B;
-    static final int LINE = 0xFF252A35;
-    static final int FIELD = 0xFF0E1015;
-    static final int OFF = 0xFF2B303B;
-    static final int TEXT = 0xFFE7E9EF;
-    static final int MUTED = 0xFF8D94A3;
-    static final int DIM = 0xFF5B6272;
-    static final int GOOD = 0xFF34D399;
-    static final int BAD = 0xFFF87171;
-    static final int WARN = 0xFFFBBF24;
+    public static final int WINDOW = 0xF4101218;
+    public static final int SIDEBAR = 0xF40B0D11;
+    public static final int CARD = 0xFF171A21;
+    public static final int CARD_HI = 0xFF1E222B;
+    public static final int LINE = 0xFF252A35;
+    public static final int FIELD = 0xFF0E1015;
+    public static final int OFF = 0xFF2B303B;
+    public static final int TEXT = 0xFFE7E9EF;
+    public static final int MUTED = 0xFF8D94A3;
+    public static final int DIM = 0xFF5B6272;
+    public static final int GOOD = 0xFF34D399;
+    public static final int BAD = 0xFFF87171;
+    public static final int WARN = 0xFFFBBF24;
 
-    static void setAccent(int idx) {
+    public static void setAccent(int idx) {
         accent = ACCENTS[Math.floorMod(idx, ACCENTS.length)];
     }
 
-    static Font font() {
+    public static Font font() {
         return Minecraft.getInstance().font;
     }
 
-    static int mul(int c) {
+    public static int mul(int c) {
         int a = (int) ((c >>> 24) * alpha);
         return (a << 24) | (c & 0xFFFFFF);
     }
 
-    static int mix(int a, int b, float t) {
+    public static int mix(int a, int b, float t) {
         t = Math.max(0f, Math.min(1f, t));
         int aa = (a >>> 24), ab = (b >>> 24);
         int ra = (a >> 16) & 255, rb = (b >> 16) & 255;
@@ -54,33 +54,33 @@ final class Ui {
                 | ((int) (ga + (gb - ga) * t) << 8) | (int) (ba + (bb - ba) * t);
     }
 
-    static int withAlpha(int c, int a) {
+    public static int withAlpha(int c, int a) {
         return (a << 24) | (c & 0xFFFFFF);
     }
 
     /** Moves {@code cur} toward {@code target}, about {@code speed} per second. */
-    static float approach(float cur, float target, float speed) {
+    public static float approach(float cur, float target, float speed) {
         float step = speed * dt;
         if (cur < target) return Math.min(target, cur + step);
         return Math.max(target, cur - step);
     }
 
-    static float ease(float t) {
+    public static float ease(float t) {
         t = Math.max(0f, Math.min(1f, t));
         return 1f - (1f - t) * (1f - t) * (1f - t);
     }
 
-    static boolean in(double mx, double my, int x, int y, int w, int h) {
+    public static boolean in(double mx, double my, int x, int y, int w, int h) {
         return mx >= x && mx < x + w && my >= y && my < y + h;
     }
 
-    static void fill(GuiGraphicsExtractor g, int x, int y, int w, int h, int c) {
+    public static void fill(GuiGraphicsExtractor g, int x, int y, int w, int h, int c) {
         if (w <= 0 || h <= 0) return;
         g.fill(x, y, x + w, y + h, mul(c));
     }
 
     /** Rounded rectangle (radius up to ~6) built from stacked 1 px rows. */
-    static void rr(GuiGraphicsExtractor g, int x, int y, int w, int h, int r, int c) {
+    public static void rr(GuiGraphicsExtractor g, int x, int y, int w, int h, int r, int c) {
         if (w <= 0 || h <= 0) return;
         r = Math.min(r, Math.min(w, h) / 2);
         if (r <= 0) {
@@ -98,48 +98,48 @@ final class Ui {
     }
 
     /** Rounded rectangle with a 1 px border. */
-    static void rrb(GuiGraphicsExtractor g, int x, int y, int w, int h, int r, int fill, int border) {
+    public static void rrb(GuiGraphicsExtractor g, int x, int y, int w, int h, int r, int fill, int border) {
         rr(g, x, y, w, h, r, border);
         rr(g, x + 1, y + 1, w - 2, h - 2, Math.max(0, r - 1), fill);
     }
 
     /** Vertical gradient, drawn as 1 px lines (only for small areas). */
-    static void vgrad(GuiGraphicsExtractor g, int x, int y, int w, int h, int top, int bottom) {
+    public static void vgrad(GuiGraphicsExtractor g, int x, int y, int w, int h, int top, int bottom) {
         for (int i = 0; i < h; i++) fill(g, x, y + i, w, 1, mix(top, bottom, h <= 1 ? 0 : i / (float) (h - 1)));
     }
 
-    static void hgrad(GuiGraphicsExtractor g, int x, int y, int w, int h, int left, int right) {
+    public static void hgrad(GuiGraphicsExtractor g, int x, int y, int w, int h, int left, int right) {
         for (int i = 0; i < w; i++) fill(g, x + i, y, 1, h, mix(left, right, w <= 1 ? 0 : i / (float) (w - 1)));
     }
 
-    static int tw(String s) {
+    public static int tw(String s) {
         return font().width(s);
     }
 
-    static void text(GuiGraphicsExtractor g, String s, int x, int y, int c) {
+    public static void text(GuiGraphicsExtractor g, String s, int x, int y, int c) {
         g.text(font(), s, x, y, mul(c), false);
     }
 
-    static void textShadow(GuiGraphicsExtractor g, String s, int x, int y, int c) {
+    public static void textShadow(GuiGraphicsExtractor g, String s, int x, int y, int c) {
         g.text(font(), s, x, y, mul(c), true);
     }
 
-    static void textR(GuiGraphicsExtractor g, String s, int right, int y, int c) {
+    public static void textR(GuiGraphicsExtractor g, String s, int right, int y, int c) {
         text(g, s, right - tw(s), y, c);
     }
 
-    static void textC(GuiGraphicsExtractor g, String s, int cx, int y, int c) {
+    public static void textC(GuiGraphicsExtractor g, String s, int cx, int y, int c) {
         text(g, s, cx - tw(s) / 2, y, c);
     }
 
     /** Pseudo-bold: the same text drawn twice, one pixel apart. */
-    static void bold(GuiGraphicsExtractor g, String s, int x, int y, int c) {
+    public static void bold(GuiGraphicsExtractor g, String s, int x, int y, int c) {
         text(g, s, x, y, c);
         text(g, s, x + 1, y, c);
     }
 
     /** Text at a larger size (pose scale), top-left at x,y. */
-    static void big(GuiGraphicsExtractor g, String s, int x, int y, float scale, int c) {
+    public static void big(GuiGraphicsExtractor g, String s, int x, int y, float scale, int c) {
         g.pose().pushMatrix();
         g.pose().translate(x, y);
         g.pose().scale(scale, scale);
@@ -149,14 +149,14 @@ final class Ui {
     }
 
     /** Cuts the text with ".." so it fits in {@code maxW}. */
-    static String fit(String s, int maxW) {
+    public static String fit(String s, int maxW) {
         if (tw(s) <= maxW) return s;
         while (s.length() > 1 && tw(s + "..") > maxW) s = s.substring(0, s.length() - 1);
         return s + "..";
     }
 
     /** Soft drop shadow made of a few translucent rings. */
-    static void shadow(GuiGraphicsExtractor g, int x, int y, int w, int h, int r) {
+    public static void shadow(GuiGraphicsExtractor g, int x, int y, int w, int h, int r) {
         for (int i = 6; i >= 1; i--) rr(g, x - i, y - i + 3, w + i * 2, h + i * 2, r + i, withAlpha(0x000000, 10 + (7 - i) * 3));
     }
 }

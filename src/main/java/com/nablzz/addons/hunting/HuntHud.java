@@ -1,5 +1,7 @@
-package com.huntingmacro;
+package com.nablzz.addons.hunting;
 
+import com.nablzz.addons.NablzzScreen;
+import com.nablzz.addons.Ui;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -9,16 +11,17 @@ import java.util.List;
 import java.util.Locale;
 
 /** Small status panel on the game screen (corner picked in the settings). */
-final class HuntHud {
+public final class HuntHud {
     private HuntHud() {}
 
     private record Row(String label, String value, int color) {}
 
-    static void render(GuiGraphicsExtractor g, DeltaTracker delta, HuntController c) {
+    public static void render(GuiGraphicsExtractor g, DeltaTracker delta, HuntController c) {
         Minecraft mc = Minecraft.getInstance();
-        if (!Config.hud || mc.player == null || mc.options.hideGui || mc.screen instanceof HuntScreen) return;
-        Ui.alpha = 1f;
+        if (!Config.hud || mc.player == null || mc.options.hideGui || mc.screen instanceof NablzzScreen) return;
         boolean run = c.isRunning();
+        if (!run && Session.runMs == 0 && c.holesPlaced == 0) return; // nothing to show yet
+        Ui.alpha = 1f;
         List<Row> rows = new ArrayList<>();
         rows.add(new Row("Status", c.phaseLabel(), run ? Ui.GOOD : Ui.BAD));
         rows.add(new Row("Time", Session.clock(), Ui.TEXT));
