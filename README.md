@@ -25,6 +25,8 @@ The black hole item is right-clicked once, not spammed: if the game prints "This
 
 The black hole is only used right after a hit has landed (short 2-tick swap pause, then one click). The lift trip prints what it is doing ("Lift: found the NPC", "clicked", "menu is open", the menu's slots) and walks up to the NPC before clicking it, so a failure shows where it stops.
 
+Order per zombie: wait until the last black hole is (almost) done and its ability is ready, hit once, swap to the black hole in the same tick, click it once 2 ticks later while standing still, then walk to the next zombie. The next hit never starts before the hole is ready, so the hole is always placed right after the hit and never spams the cooldown message.
+
 ## Updating
 On joining a world the mod checks the `latest-build` release and tells you if a newer jar exists. `/hunt update` downloads it into your mods folder (SHA-256 checked against the release) and the old jar is removed when the game closes; restart the game to run the new code. `/hunt version` shows what you have. If the old jar is still in the mods folder after closing, delete it by hand.
 

@@ -62,7 +62,7 @@ public class HuntController {
     private static final long TAG_MS = 120_000;
     /** Eye to hitbox centre distance at which we stop walking and swing. */
     private static final double HIT_DIST = 3.4; // start aiming early; the real attack needs the crosshair on the zombie
-    private static final long HIT_TIMEOUT_MS = 2500;
+    private static final long HIT_TIMEOUT_MS = 5000;
     /** The walk grid is 96 wide: zombies further out than this can be seen (ESP) but not pathed to yet. */
     private static final double PLAN_RADIUS = 44.0;
     private static final long STUCK_MS = 8000;
@@ -173,6 +173,12 @@ public class HuntController {
     private boolean holeOut, warnedNoCaught;
     private long holeOutAt;
     private int holeLeft;
+    /** The black hole ability can be used again ("This ability is now ready!"); fallback time if that line never comes. */
+    private boolean abilityReadyFlag = true;
+    private long abilityFallbackAt, abilityUsedAt, holeGateSince;
+    private boolean warnedGate;
+    /** Seconds from placing a hole to "This ability is now ready!" (learned). */
+    public volatile double readyAfterSec;
     /** Ticks to wait after switching to the black hole before the first click (the server needs the slot packet). */
     private static final int SWAP_TICKS = 2;
     private int swapTicks;
@@ -342,12 +348,21 @@ public class HuntController {
         String low = t.toLowerCase(Locale.ROOT);
         if (low.contains("ability is now ready")) { // the game says the item can be used again
             abilityReadyAt = 0;
+            abilityReadyFlag = true;
+            long nowMs = System.currentTimeMillis();
+            if (abilityUsedAt != 0 && holeAuto) {
+                double r = (nowMs - abilityUsedAt) / 1000.0;
+                if (r >= 0.5 && r <= 60.0) readyAfterSec = readyAfterSec <= 0 ? r : readyAfterSec * 0.7 + r * 0.3;
+            }
+            abilityUsedAt = 0;
             return;
         }
         Matcher cd = COOLDOWN.matcher(t);
         if (cd.find()) { // "This ability is on cooldown for 1s." -> wait it out, that click didn't count
             double sec = Double.parseDouble(cd.group(1));
             abilityReadyAt = System.currentTimeMillis() + (long) (sec * 1000) + 200;
+            abilityReadyFlag = false;
+            abilityFallbackAt = abilityReadyAt + 300;
             lastUseAt = 0;
             holeUseStart = 0;
             if (holeTries > 0) holeTries--;
@@ -448,6 +463,10 @@ public class HuntController {
         blacklist.clear();
         holePending = false;
         holeOut = false;
+        abilityReadyFlag = true;
+        abilityReadyAt = 0;
+        holeGateSince = 0;
+        warnedGate = false;
         holeMisses = 0;
         holeEndsAt = 0;
         pendingHoles.clear();
@@ -1069,10 +1088,47 @@ public class HuntController {
 
     // ---- HUNT: walk to the next zombie -----------------------------------------------------------
 
+    /** Can the black hole ability be used right now? (no cooldown running) */
+    private boolean abilityReady(long now) {
+        return now >= abilityReadyAt && (abilityReadyFlag || now >= abilityFallbackAt);
+    }
+
+    /**
+     * True while the next hit must wait: the last black hole is not (almost) done, its ability is still on cooldown,
+     * or the item has not come back to the hotbar. The hit comes first and the hole goes down right after it, so
+     * everything the hole needs has to be ready BEFORE we hit.
+     */
+    private boolean holeGateClosed(LocalPlayer p, long now) {
+        boolean closed = false;
+        long backAt = watchBack && cooldownSec > 0 ? vanishAt + (long) (cooldownSec * 1000) - (long) (hitToHoleSec * 1000) : 0;
+        if (now < Math.max(holeEndsAt - (long) (holeLeadSec * 1000), backAt)) closed = true;
+        if (!abilityReady(now)) closed = true;
+        if (holeSlot(p) < 0 && holeOut) closed = true; // the item is still gone from the last use
+        if (!closed) {
+            holeGateSince = 0;
+            return false;
+        }
+        if (holeGateSince == 0) holeGateSince = now;
+        if (now - holeGateSince > 20_000) { // never wait forever (a wrong line text, no hole item ...)
+            if (!warnedGate) {
+                warnedGate = true;
+                Chat.msg("Waited 20 s for the black hole to be ready - hitting anyway. Check /hunt caught and /hunt items.");
+            }
+            return false;
+        }
+        return true;
+    }
+
     private void hunt(Minecraft mc, LocalPlayer p, long now) {
         if (checkZone(mc, p, now)) return;
-        if (holePending) handleHole(mc, p, now);
-        if (!running) return;
+        if (holePending) {
+            handleHole(mc, p, now);
+            if (!running) return;
+            if (holePending) { // hit -> hole first, standing still; only then on to the next zombie
+                releaseMovement(mc);
+                return;
+            }
+        }
         List<Entity> cands = candidates(mc, p, now);
         lastCands = cands;
 
@@ -1098,15 +1154,19 @@ public class HuntController {
         idleSince = 0;
         if (hopTarget != null && p.getBoundingBox().inflate(PLAN_RADIUS).contains(cands.get(0).position())) resetHops();
 
-        // close enough with a clear line: stop and hit it
-        Entity near = cands.get(0);
-        if (!holePending && inMelee(mc, p, near)) {
-            // previous black hole still working: stand by the zombie until it is (almost) done
-            long backAt = watchBack && cooldownSec > 0 ? vanishAt + (long) (cooldownSec * 1000) - (long) (hitToHoleSec * 1000) : 0;
-            if (now < Math.max(holeEndsAt - (long) (holeLeadSec * 1000), backAt)) {
+        // close enough with a clear line (any of the nearest few): stop and hit it
+        Entity near = null;
+        for (int i = 0; i < Math.min(5, cands.size()); i++) {
+            if (inMelee(mc, p, cands.get(i))) {
+                near = cands.get(i);
+                break;
+            }
+        }
+        if (near != null) {
+            if (holeGateClosed(p, now)) { // wait next to the zombie until the hole is ready (aim at it meanwhile)
                 releaseMovement(mc);
                 float[] ang = anglesTo(p, centre(near));
-                aim.setTarget(ang[0], ang[1], 400f, 1f);
+                aim.setTarget(ang[0], ang[1], 600f, 1.2f);
                 return;
             }
             current = near;
@@ -1153,8 +1213,13 @@ public class HuntController {
         aim.setTarget(ang[0], ang[1], 2500f, 1.4f);
         if (wait-- > 0) return;
 
-        // hit the moment the crosshair is on it (the real reach check), no settling wait
+        // hit the moment it is in reach and the crosshair is on it (or nearly: the server only checks the reach)
         boolean onIt = mc.hitResult instanceof EntityHitResult ehr && ehr.getEntity() == current;
+        if (!onIt && reachDist(p, current) <= 3.0) {
+            float yawErr = Math.abs(net.minecraft.util.Mth.wrapDegrees(ang[0] - p.getYRot()));
+            float pitchErr = Math.abs(ang[1] - p.getXRot());
+            onIt = yawErr < 9f && pitchErr < 14f;
+        }
         if (onIt) {
             mc.gameMode.attack(p, current);
             p.swing(InteractionHand.MAIN_HAND);
@@ -1163,13 +1228,35 @@ public class HuntController {
             hitZombies.add(current);
             hitAt = now;
             hits++;
-            wait = 0; // black hole right away
-            setPhase(Phase.GOLDEN, now);
+            wait = 0;
+            int gs = golden == Golden.OFF ? -1 : findGolden(p);
+            if (gs >= 0) {
+                setPhase(Phase.GOLDEN, now);
+            } else { // straight on to the black hole: swap in the same tick, click 2 ticks later
+                int hs = holeSlot(p);
+                boolean swapped = hs >= 0;
+                if (swapped) p.getInventory().setSelectedSlot(hs);
+                beginHole(now);
+                if (swapped && holePending) {
+                    swapTicks = SWAP_TICKS;
+                    holeBefore = p.getInventory().getItem(hs).getCount();
+                }
+            }
         } else if (now - phaseSince > HIT_TIMEOUT_MS) {
-            tagged.put(current.getId(), now - TAG_MS + 8000); // retry in 8 s
+            tagged.put(current.getId(), now - TAG_MS + 3000); // short rest, then it is a target again
             current = null;
             setPhase(Phase.HUNT, now);
         }
+    }
+
+    /** Distance from the eyes to the nearest point of the zombie's hitbox (what the server's reach check uses). */
+    private static double reachDist(LocalPlayer p, Entity e) {
+        var b = e.getBoundingBox();
+        Vec3 eye = p.getEyePosition();
+        double x = net.minecraft.util.Mth.clamp(eye.x, b.minX, b.maxX);
+        double y = net.minecraft.util.Mth.clamp(eye.y, b.minY, b.maxY);
+        double z = net.minecraft.util.Mth.clamp(eye.z, b.minZ, b.maxZ);
+        return eye.distanceTo(new Vec3(x, y, z));
     }
 
     // ---- GOLDEN: golden axe ------------------------------------------------------------------------
@@ -1229,18 +1316,18 @@ public class HuntController {
      * it vanished from the hotbar (or its stack shrank). Walking to the next zombie goes on meanwhile.
      */
     private void handleHole(Minecraft mc, LocalPlayer p, long now) {
+        // the previous hole should be done by now (we hit just before its end); give its "You caught" line a moment
         if (caughtGate && holeOut) {
-            long maxWait = (long) (Math.max(8.0, holeTimeSec * 2 + 3) * 1000);
-            if (now - holeOutAt < maxWait) { // the last hole hasn't said it is done yet: hold the next one back
+            long cap = (long) (holeLeadSec * 1000) + 1500;
+            if (now - hitAt < cap) {
                 holeStart = now;
                 return;
             }
-            holeOut = false;
-            if (!warnedNoCaught) {
-                warnedNoCaught = true;
-                Chat.msg("No \"" + caughtText + "\" line in chat for " + (maxWait / 1000) + "s: placing anyway. Check "
-                        + "/hunt caught (the text must match what the game prints).");
-            }
+            holeOut = false; // no line in time: carry on
+        }
+        if (!abilityReady(now)) { // still on cooldown: wait for "ready", no clicking
+            holeStart = now;
+            return;
         }
         int slot = holeSlot(p);
         if (slot < 0) {
@@ -1331,6 +1418,9 @@ public class HuntController {
             holesPlaced++;
             holeOut = true;
             holeOutAt = now;
+            abilityReadyFlag = false; // used: ready again at "This ability is now ready!"
+            abilityUsedAt = now;
+            abilityFallbackAt = now + (long) (Math.max(3.0, readyAfterSec * 1.3 + 0.5) * 1000);
             if (holeAuto && first) learnTimings(now, vanished);
             holeEndsAt = now + (long) (holeTimeSec * 1000); // the background timer: this hole is busy until then
             if (holeAuto && first && lastHit != null) pendingHoles.add(new PendingHole(lastHit, now));
@@ -1425,7 +1515,7 @@ public class HuntController {
             releaseMovement(mc);
             if (noLegSince == 0) noLegSince = now;
             else if (now - noLegSince > 5000) { // nothing reachable: give those zombies a rest
-                for (Entity e : cands) tagged.put(e.getId(), now - TAG_MS + 20_000);
+                for (Entity e : cands) tagged.put(e.getId(), now - TAG_MS + 6000);
                 noLegSince = 0;
                 planDirty = true;
             }
@@ -1439,7 +1529,7 @@ public class HuntController {
             if (arrivedAt == 0) arrivedAt = now;
             planDirty = true;                 // the zombie moved on: aim at where it is now
             if (now - arrivedAt > 2500 && !cands.isEmpty()) { // standing at the spot but can't get a hit in
-                tagged.put(cands.get(0).getId(), now - TAG_MS + 10_000);
+                tagged.put(cands.get(0).getId(), now - TAG_MS + 4000);
                 arrivedAt = 0;
                 leg = null;
             }
@@ -1603,7 +1693,7 @@ public class HuntController {
     }
 
     public String status() {
-        return (running ? "RUNNING " + phase : "stopped") + " | area=" + (areaOn ? "x " + areaX1 + ".." + areaX2 + ", z " + areaZ1 + ".." + areaZ2 + ", y " + areaY1 + ".." + areaY2 : "off") + " | lava=" + lavaCount + "/" + lavaLimit + " | zone=\"" + (zoneGuard ? zoneText : "off") + "\" in=" + zoneOk + " | hits=" + hits + " holes=" + holesPlaced + " missed=" + holeMisses + " holeTime=" + String.format(Locale.ROOT, "%.1fs", holeTimeSec) + (holeAuto ? " (auto, " + holeSamples + " samples)" : " (manual)") + " learned[hit->hole=" + String.format(Locale.ROOT, "%.2f", hitToHoleSec) + "s register=" + String.format(Locale.ROOT, "%.2f", useLatencySec) + "s cooldown=" + String.format(Locale.ROOT, "%.1f", cooldownSec) + "s lead=" + String.format(Locale.ROOT, "%.2f", holeLeadSec) + "s n=" + timingSamples + "]" + " kills=" + kills + " caught=" + caughtMsgs + " shards=" + shards + (holeOut ? " [hole out]" : "") + " holeTimer="
+        return (running ? "RUNNING " + phase : "stopped") + " | area=" + (areaOn ? "x " + areaX1 + ".." + areaX2 + ", z " + areaZ1 + ".." + areaZ2 + ", y " + areaY1 + ".." + areaY2 : "off") + " | lava=" + lavaCount + "/" + lavaLimit + " | zone=\"" + (zoneGuard ? zoneText : "off") + "\" in=" + zoneOk + " | hits=" + hits + " holes=" + holesPlaced + " missed=" + holeMisses + " holeTime=" + String.format(Locale.ROOT, "%.1fs", holeTimeSec) + (holeAuto ? " (auto, " + holeSamples + " samples)" : " (manual)") + " learned[hit->hole=" + String.format(Locale.ROOT, "%.2f", hitToHoleSec) + "s register=" + String.format(Locale.ROOT, "%.2f", useLatencySec) + "s cooldown=" + String.format(Locale.ROOT, "%.1f", cooldownSec) + "s lead=" + String.format(Locale.ROOT, "%.2f", holeLeadSec) + "s n=" + timingSamples + "]" + " kills=" + kills + " ready=" + (abilityReady(System.currentTimeMillis()) ? "yes" : "no") + (readyAfterSec > 0 ? String.format(Locale.ROOT, "(%.1fs)", readyAfterSec) : "") + " caught=" + caughtMsgs + " shards=" + shards + (holeOut ? " [hole out]" : "") + " holeTimer="
                 + (holeEndsAt > System.currentTimeMillis() ? String.format("%.1fs left", (holeEndsAt - System.currentTimeMillis()) / 1000.0) : "idle")
                 + " | zombies in view=" + lastCands.size() + " | mob=\"" + mobFilter + "\" axe=\"" + axeName
                 + "\" hole=\"" + holeName + "\" golden=" + golden;
