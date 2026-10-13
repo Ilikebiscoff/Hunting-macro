@@ -264,9 +264,11 @@ public class HuntingMacroMod implements ClientModInitializer {
                     }))));
             root.then(lit("caught")
                     .executes(c -> {
-                        Chat.msg("Wait for \"" + controller.caughtText + "\" in chat before each black hole: "
+                        Chat.msg("Wait for \"" + controller.caughtText + " x<" + controller.caughtCounts + "> "
+                                + controller.caughtMob + "\" in chat before each black hole: "
                                 + (controller.caughtGate ? "ON" : "OFF") + " | lines seen " + controller.caughtMsgs
-                                + ", shards " + controller.shards + " (/hunt caught on|off|text <t>)");
+                                + ", shards " + controller.shards
+                                + " (/hunt caught on|off|text <t>|mob <t>|counts <2,3|any>)");
                         return 1;
                     })
                     .then(lit("on").executes(c -> {
@@ -282,6 +284,17 @@ public class HuntingMacroMod implements ClientModInitializer {
                     .then(lit("text").then(arg("t", StringArgumentType.greedyString()).executes(c -> {
                         controller.caughtText = StringArgumentType.getString(c, "t").trim();
                         Chat.msg("Looking for \"" + controller.caughtText + "\" in chat.");
+                        return 1;
+                    })))
+                    .then(lit("mob").then(arg("t", StringArgumentType.greedyString()).executes(c -> {
+                        String t = StringArgumentType.getString(c, "t").trim();
+                        controller.caughtMob = t.equalsIgnoreCase("any") ? "" : t;
+                        Chat.msg("The caught line must name: " + (controller.caughtMob.isEmpty() ? "any mob" : "\"" + t + "\""));
+                        return 1;
+                    })))
+                    .then(lit("counts").then(arg("list", StringArgumentType.greedyString()).executes(c -> {
+                        controller.caughtCounts = StringArgumentType.getString(c, "list").trim();
+                        Chat.msg("Counts that end a hole: " + controller.caughtCounts);
                         return 1;
                     }))));
             root.then(lit("golden")
@@ -400,8 +413,8 @@ public class HuntingMacroMod implements ClientModInitializer {
         Chat.msg(" /hunt lava [on|off|limit <n>] - after more than 3 lava incidents: /warp deep, walk to the lift, click the Lift Operator, click the diamond");
         Chat.msg(" /hunt lift go [warp] (test the lift trip now) | lift [<x> <y> <z> | npc <text> | warp <cmd>] - lift spot (default 45 150 15), NPC name and warp command");
         Chat.msg(" /hunt refresh <n> - every n kills (default 5) the grey, already-hit zombies become targets again; lift deep <text|off> - skip the lift when the sidebar says Deep Caverns");
-        Chat.msg(" /hunt hole count <n> - black holes after every hit (default 2)");
-        Chat.msg(" /hunt caught [on|off|text <t>] - a new black hole waits for the \"You caught ...\" chat line of the last one (default ON)");
+        Chat.msg(" /hunt hole count <n> - black holes after every hit (default 1)");
+        Chat.msg(" /hunt caught [on|off|text <t>|mob <t>|counts <2,3|any>] - a new black hole waits for the \"You caught x2/x3 Miner Zombie Shards!\" chat line of the last one (default ON)");
         Chat.msg(" /hunt range <blocks> - how far to look for zombies (default 80; pathing reaches ~44)");
         Chat.msg(" /hunt warp <command|off> - command to run when stuck or nothing to hunt (e.g. warp dr)");
         Chat.msg(" /hunt path - last pathfinder stats, /hunt highlight - toggle overlay, /hunt parkour on|off");

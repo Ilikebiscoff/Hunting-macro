@@ -161,13 +161,16 @@ public class HuntController {
      */
     public volatile boolean caughtGate = true;
     public volatile String caughtText = "You caught";
+    /** The line must also name this mob and a count from this list ("2,3"; "any" = every count). */
+    public volatile String caughtMob = "Miner Zombie";
+    public volatile String caughtCounts = "2,3";
     public volatile int shards, caughtMsgs;
     private int caughtSamples;
     private boolean holeOut, warnedNoCaught;
     private long holeOutAt;
     private int holeLeft;
     /** Black holes placed in a row after every hit (the item has to come back between them). */
-    public volatile int holeCount = 2;
+    public volatile int holeCount = 1;
     private final List<Entity> hitZombies = new ArrayList<>();
     private int killsSinceRefresh, kills;
     private long hitAt, holeUseStart, vanishAt;
@@ -309,17 +312,34 @@ public class HuntController {
         Chat.msg("Refreshed " + n + " grey zombies (" + why + "): they can be hit again.");
     }
 
+    private boolean countAllowed(int n) {
+        String c = caughtCounts.trim();
+        if (c.isEmpty() || c.equalsIgnoreCase("any")) return true;
+        for (String part : c.split("[,\\s]+")) {
+            try {
+                if (Integer.parseInt(part) == n) return true;
+            } catch (NumberFormatException ignored) {
+                // skip junk
+            }
+        }
+        return false;
+    }
+
     private static final Pattern CAUGHT_COUNT = Pattern.compile("[x\u00d7]\\s*(\\d+)");
 
     /** Called for every chat/system line. */
     public void onChat(String raw) {
         if (!running || raw == null) return;
         String t = raw.replaceAll("\u00a7.", "");
-        if (caughtText.isBlank() || !t.toLowerCase(Locale.ROOT).contains(caughtText.toLowerCase(Locale.ROOT))) return;
+        String low = t.toLowerCase(Locale.ROOT);
+        if (caughtText.isBlank() || !low.contains(caughtText.toLowerCase(Locale.ROOT))) return;
+        if (!caughtMob.isBlank() && !low.contains(caughtMob.toLowerCase(Locale.ROOT))) return;
+        Matcher m = CAUGHT_COUNT.matcher(t);
+        int n = m.find() ? Integer.parseInt(m.group(1)) : 1;
+        if (!countAllowed(n)) return;
         long now = System.currentTimeMillis();
         caughtMsgs++;
-        Matcher m = CAUGHT_COUNT.matcher(t);
-        shards += m.find() ? Integer.parseInt(m.group(1)) : 1;
+        shards += n;
         if (!holeOut) return;
         holeOut = false; // the hole we placed is finished: the next one may go down
         holeEndsAt = now;
