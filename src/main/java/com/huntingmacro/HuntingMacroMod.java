@@ -314,6 +314,22 @@ public class HuntingMacroMod implements ClientModInitializer {
                 Chat.msg("Debug " + (controller.debug ? "ON: prints what the scan and pathing see every 4 s" : "OFF"));
                 return 1;
             }));
+            root.then(lit("hits")
+                    .executes(c -> {
+                        Chat.msg("Hits on each zombie before the black hole: " + controller.hitsPerZombie
+                                + ", " + controller.hitGapTicks + " ticks apart (/hunt hits <n> [gapTicks])");
+                        return 1;
+                    })
+                    .then(arg("n", IntegerArgumentType.integer(1, 6)).executes(c -> {
+                        controller.hitsPerZombie = IntegerArgumentType.getInteger(c, "n");
+                        Chat.msg("Hits on each zombie: " + controller.hitsPerZombie);
+                        return 1;
+                    }).then(arg("gap", IntegerArgumentType.integer(1, 20)).executes(c -> {
+                        controller.hitsPerZombie = IntegerArgumentType.getInteger(c, "n");
+                        controller.hitGapTicks = IntegerArgumentType.getInteger(c, "gap");
+                        Chat.msg("Hits on each zombie: " + controller.hitsPerZombie + ", " + controller.hitGapTicks + " ticks apart");
+                        return 1;
+                    }))));
             root.then(lit("golden")
                     .executes(c -> {
                         Chat.msg("Golden axe step: " + controller.golden + " (/hunt golden use|hit|off)");
@@ -434,6 +450,7 @@ public class HuntingMacroMod implements ClientModInitializer {
         Chat.msg(" /hunt caught [on|off|text <t>|mob <t>|counts <2,3|any>] - a new black hole waits for the \"You caught a Miner Zombie Shard!\" chat line of the last one (default ON; counts default: any, a single shard has no xN)");
         Chat.msg(" /hunt swap <ticks> - pause after swapping to the black hole before the click (default 4)");
         Chat.msg(" /hunt scan | /hunt debug - show what the scan and pathfinder see (zombies found, inside the area, nearest target, planner status)");
+        Chat.msg(" /hunt hits <n> [gapTicks] - hits on each zombie before the black hole (default 2, 3 ticks apart)");
         Chat.msg(" /hunt range <blocks> - how far to look for zombies (default 80; pathing reaches ~44)");
         Chat.msg(" /hunt warp <command|off> - command to run when stuck or nothing to hunt (e.g. warp dr)");
         Chat.msg(" /hunt path - last pathfinder stats, /hunt highlight - toggle overlay, /hunt parkour on|off");

@@ -1226,6 +1226,7 @@ public class HuntController {
             releaseMovement(mc);
             aim.retargetFast();
             wait = 0;
+            hitsDone = 0;
             setPhase(Phase.HIT, now);
             return;
         }
@@ -1247,9 +1248,21 @@ public class HuntController {
 
     // ---- HIT: one hit with the prime hunt axe --------------------------------------------------
 
+    /** Hits on each zombie before the black hole (the Prime Huntaxe + pet = one "double hit" each, so 2 by default). */
+    public volatile int hitsPerZombie = 2;
+    /** Ticks between the hits on the same zombie. */
+    public volatile int hitGapTicks = 3;
+    private int hitsDone;
+
     private void hit(Minecraft mc, LocalPlayer p, long now) {
         releaseMovement(mc);
-        if (current == null || !current.isAlive() || p.getEyePosition().distanceTo(centre(current)) > HIT_DIST + 1.0) {
+        boolean gone = current == null || !current.isAlive() || p.getEyePosition().distanceTo(centre(current)) > HIT_DIST + 1.0;
+        if (gone) {
+            if (hitsDone > 0) { // it died or moved off after a hit: that hit counts, on to the black hole
+                hitsDone = 0;
+                afterHit(mc, p, now);
+                return;
+            }
             current = null;
             setPhase(Phase.HUNT, now);
             return;
@@ -1278,27 +1291,44 @@ public class HuntController {
             p.swing(InteractionHand.MAIN_HAND);
             tagged.put(current.getId(), now);
             lastHit = current;
-            hitZombies.add(current);
+            if (hitsDone == 0) hitZombies.add(current);
             hitAt = now;
             hits++;
-            wait = 0;
-            int gs = golden == Golden.OFF ? -1 : findGolden(p);
-            if (gs >= 0) {
-                setPhase(Phase.GOLDEN, now);
-            } else { // straight on to the black hole: swap in the same tick, click 2 ticks later
-                int hs = holeSlot(p);
-                boolean swapped = hs >= 0;
-                if (swapped) p.getInventory().setSelectedSlot(hs);
-                beginHole(now);
-                if (swapped && holePending) {
-                    swapTicks = swapDelayTicks;
-                    holeBefore = p.getInventory().getItem(hs).getCount();
-                }
+            hitsDone++;
+            if (hitsDone < Math.max(1, hitsPerZombie)) { // another hit on the same zombie a few ticks later
+                wait = Math.max(1, hitGapTicks);
+                phaseSince = now; // the timeout below counts from this hit
+                return;
             }
+            hitsDone = 0;
+            afterHit(mc, p, now);
         } else if (now - phaseSince > HIT_TIMEOUT_MS) {
+            if (hitsDone > 0) { // the first hit landed but the second can't: go on to the black hole
+                hitsDone = 0;
+                afterHit(mc, p, now);
+                return;
+            }
             tagged.put(current.getId(), now - TAG_MS + 3000); // short rest, then it is a target again
             current = null;
             setPhase(Phase.HUNT, now);
+        }
+    }
+
+    /** All hits are in: swap to the black hole in this same tick (click a few ticks later) or do the golden axe. */
+    private void afterHit(Minecraft mc, LocalPlayer p, long now) {
+        wait = 0;
+        int gs = golden == Golden.OFF ? -1 : findGolden(p);
+        if (gs >= 0) {
+            setPhase(Phase.GOLDEN, now);
+            return;
+        }
+        int hs = holeSlot(p);
+        boolean swapped = hs >= 0;
+        if (swapped) p.getInventory().setSelectedSlot(hs);
+        beginHole(now);
+        if (swapped && holePending) {
+            swapTicks = swapDelayTicks;
+            holeBefore = p.getInventory().getItem(hs).getCount();
         }
     }
 
