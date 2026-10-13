@@ -279,7 +279,8 @@ public class HuntScreen extends Screen {
 
         // hint bar
         Ui.fill(g, vx, wy + wh - HINT_H - 4, vw, 1, Ui.LINE);
-        Ui.text(g, Ui.fit(hint, vw), vx, wy + wh - HINT_H + 1, Ui.MUTED);
+        boolean flashing = System.currentTimeMillis() < flashUntil;
+        Ui.text(g, Ui.fit(flashing ? flashText : hint, vw), vx, wy + wh - HINT_H + 1, flashing ? Ui.WARN : Ui.MUTED);
         Ui.alpha = 1f;
     }
 
@@ -525,7 +526,16 @@ public class HuntScreen extends Screen {
         } else {
             Config.save(c);
             if (c.start(mc)) onClose(); // the macro pauses while a screen is open
+            else flash("Could not start - see the chat for why (hotbar item names?)");
         }
+    }
+
+    private String flashText = "";
+    private long flashUntil;
+
+    private void flash(String s) {
+        flashText = s;
+        flashUntil = System.currentTimeMillis() + 4000;
     }
 
     private void blur() {
@@ -683,7 +693,6 @@ public class HuntScreen extends Screen {
 
         @Override
         boolean down(double mx, double my, int button) {
-            if (mx < x + w - 80) return false;
             set.accept(!get.getAsBoolean());
             dirty = true;
             return true;
