@@ -445,7 +445,7 @@ public class HuntingMacroMod implements ClientModInitializer {
                 return 1;
             }));
             root.executes(c -> {
-                help();
+                openGui = true; // plain /hunt opens the settings screen
                 return 1;
             });
             dispatcher.register(root);
@@ -460,7 +460,7 @@ public class HuntingMacroMod implements ClientModInitializer {
 
     private static void help() {
         Chat.msg("Commands:");
-        Chat.msg(" /hunt gui - open the settings screen (also Right Shift)");
+        Chat.msg(" /hunt (or /hunt gui) - open the settings screen (also Right Shift)");
         Chat.msg(" /hunt start | stop | status");
         Chat.msg(" /hunt update | update check | version - download the newest build (restart the game afterwards)");
         Chat.msg(" /hunt items - list your hotbar item names");
