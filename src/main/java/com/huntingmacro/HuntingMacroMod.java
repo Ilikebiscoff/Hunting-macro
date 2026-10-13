@@ -414,7 +414,7 @@ public class HuntingMacroMod implements ClientModInitializer {
         Chat.msg(" /hunt lift go [warp] (test the lift trip now) | lift [<x> <y> <z> | npc <text> | warp <cmd>] - lift spot (default 45 150 15), NPC name and warp command");
         Chat.msg(" /hunt refresh <n> - every n kills (default 5) the grey, already-hit zombies become targets again; lift deep <text|off> - skip the lift when the sidebar says Deep Caverns");
         Chat.msg(" /hunt hole count <n> - black holes after every hit (default 1)");
-        Chat.msg(" /hunt caught [on|off|text <t>|mob <t>|counts <2,3|any>] - a new black hole waits for the \"You caught x2/x3 Miner Zombie Shards!\" chat line of the last one (default ON)");
+        Chat.msg(" /hunt caught [on|off|text <t>|mob <t>|counts <2,3|any>] - a new black hole waits for the \"You caught a Miner Zombie Shard!\" chat line of the last one (default ON; counts default: any, a single shard has no xN)");
         Chat.msg(" /hunt range <blocks> - how far to look for zombies (default 80; pathing reaches ~44)");
         Chat.msg(" /hunt warp <command|off> - command to run when stuck or nothing to hunt (e.g. warp dr)");
         Chat.msg(" /hunt path - last pathfinder stats, /hunt highlight - toggle overlay, /hunt parkour on|off");

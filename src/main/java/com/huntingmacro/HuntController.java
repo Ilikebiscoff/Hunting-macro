@@ -167,7 +167,7 @@ public class HuntController {
     public volatile String caughtText = "You caught";
     /** The line must also name this mob and a count from this list ("2,3"; "any" = every count). */
     public volatile String caughtMob = "Miner Zombie";
-    public volatile String caughtCounts = "2,3";
+    public volatile String caughtCounts = "any";
     public volatile int shards, caughtMsgs;
     private int caughtSamples;
     private boolean holeOut, warnedNoCaught;
@@ -337,6 +337,10 @@ public class HuntController {
         if (!running || raw == null) return;
         String t = raw.replaceAll("\u00a7.", "");
         String low = t.toLowerCase(Locale.ROOT);
+        if (low.contains("ability is now ready")) { // the game says the item can be used again
+            abilityReadyAt = 0;
+            return;
+        }
         Matcher cd = COOLDOWN.matcher(t);
         if (cd.find()) { // "This ability is on cooldown for 1s." -> wait it out, that click didn't count
             double sec = Double.parseDouble(cd.group(1));

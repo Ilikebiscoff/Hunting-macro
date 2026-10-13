@@ -19,7 +19,7 @@ Needs in the **hotbar**: the Prime Huntaxe and the Medium Pocket Black Hole (equ
 
 Every 5 kills the greyed-out zombies (already hit) are reset so they can be hit again (`/hunt refresh <n>`). Hits are fast: it aims with a stiff spring and swings the moment the crosshair is on the zombie.
 
-A new black hole is only placed after the previous one has printed its "You caught x2/x3 Miner Zombie Shards!" chat line (`/hunt caught`); that line also gives the exact hole time, so the timer is learned from it.
+A new black hole is only placed after the previous one has printed its "You caught a Miner Zombie Shard!" chat line (any count: "a", x2, x3) (`/hunt caught`); that line also gives the exact hole time, so the timer is learned from it.
 
 The black hole item is right-clicked once, not spammed: if the game prints "This ability is on cooldown for Ns" the macro waits that long first, and it retries at most once after a second of no result.
 
