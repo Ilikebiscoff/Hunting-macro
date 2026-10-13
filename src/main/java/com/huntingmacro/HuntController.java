@@ -173,6 +173,9 @@ public class HuntController {
     private boolean holeOut, warnedNoCaught;
     private long holeOutAt;
     private int holeLeft;
+    /** Ticks to wait after switching to the black hole before the first click (the server needs the slot packet). */
+    private static final int SWAP_TICKS = 2;
+    private int swapTicks;
     /** Black holes placed in a row after every hit (the item has to come back between them). */
     public volatile int holeCount = 1;
     private final List<Entity> hitZombies = new ArrayList<>();
@@ -595,6 +598,8 @@ public class HuntController {
     // ---- rescue: warp deep -> walk to the lift -> click the Lift Operator -> click the diamond -----------------------
 
     private int rescueStep;
+    private long lastLiftClick;
+    private boolean liftNpcReported, liftNpcSeen, liftMenuReported;
     private long rescueAt, rescueSince;
     private int liftUseTick;
 
@@ -634,29 +639,51 @@ public class HuntController {
             }
             case 2 -> liftWalk(mc, p, now);
             case 3 -> { // click the Lift Operator until its menu is open
-                releaseMovement(mc);
                 if (mc.screen instanceof AbstractContainerScreen<?>) {
+                    releaseMovement(mc);
+                    Chat.msg("Lift: menu is open.");
                     rescueStep = 4;
                     rescueAt = now;
                     return;
                 }
                 Entity npc = findLiftNpc(mc, p);
                 if (npc == null) {
-                    if (now - rescueAt > 12_000) {
+                    releaseMovement(mc);
+                    if (!liftNpcReported && now - rescueAt > 2000) {
+                        liftNpcReported = true;
+                        Chat.msg("Lift: can't see \"" + liftNpc + "\" yet. Name tags nearby: " + nearbyNames(mc, p));
+                    }
+                    if (now - rescueAt > 15_000) {
                         Chat.msg("Can't find \"" + liftNpc + "\" near " + liftX + " " + liftY + " " + liftZ
                                 + " (/hunt lift npc <text>) - stopping.");
                         stop(mc);
                     }
                     return;
                 }
+                if (!liftNpcSeen) {
+                    liftNpcSeen = true;
+                    Chat.msg(String.format(Locale.ROOT, "Lift: found the NPC %.1f blocks away.",
+                            p.getEyePosition().distanceTo(centre(npc))));
+                }
+                // too far to click: walk up to it first (a click only reaches ~3 blocks)
+                if (p.getEyePosition().distanceTo(centre(npc)) > 3.0) {
+                    moving = true;
+                    navigateTo(mc, p, now, List.of(npc.blockPosition()), List.of());
+                    if (leg == null && now - rescueAt > 4000) blindWalk(mc, p, centre(npc));
+                    return;
+                }
+                releaseMovement(mc);
                 float[] ang = anglesTo(p, centre(npc));
-                aim.setTarget(ang[0], ang[1], 500f, 1f);
-                boolean onIt = aim.settled(p, 4f) && mc.hitResult instanceof EntityHitResult ehr && ehr.getEntity() == npc;
-                if ((onIt || now - rescueAt > 3000) && liftUseTick++ % 20 == 0) { // retry every second
+                aim.setTarget(ang[0], ang[1], 900f, 1.2f);
+                boolean onIt = mc.hitResult instanceof EntityHitResult ehr && ehr.getEntity() == npc;
+                // click once the crosshair is on it (or after a moment anyway), then wait 1 s before trying again
+                if ((onIt || aim.settled(p, 6f) || now - rescueAt > 3000) && now - lastLiftClick > 1000) {
+                    lastLiftClick = now;
                     mc.gameMode.interact(p, npc, new EntityHitResult(npc), InteractionHand.MAIN_HAND);
                     p.swing(InteractionHand.MAIN_HAND);
+                    Chat.msg("Lift: clicked the NPC.");
                 }
-                if (now - rescueAt > 25_000) {
+                if (now - rescueAt > 30_000) {
                     Chat.msg("The lift menu never opened - stopping.");
                     stop(mc);
                 }
@@ -667,18 +694,37 @@ public class HuntController {
                     rescueAt = now;
                     return;
                 }
-                if (now - rescueAt < 400) return; // let the server fill the menu
+                if (now - rescueAt < 500) return; // let the server fill the menu
                 var menu = cs.getMenu();
-                int n = menu.slots.size() - 36; // the last 36 slots are our own inventory
-                for (int i = 0; i < n; i++) {
-                    if (menu.slots.get(i).getItem().is(Items.DIAMOND)) {
-                        mc.gameMode.handleContainerInput(menu.containerId, i, 0, ContainerInput.PICKUP, p);
-                        rescueStep = 5;
-                        rescueAt = now;
-                        return;
-                    }
+                int n = Math.max(0, menu.slots.size() - 36); // the last 36 slots are our own inventory
+                int pick = -1;
+                for (int i = 0; i < n && pick < 0; i++) {
+                    if (menu.slots.get(i).getItem().is(Items.DIAMOND)) pick = i;
                 }
-                if (now - rescueAt > 6000) {
+                String want = deepText.toLowerCase(Locale.ROOT);
+                for (int i = 0; i < n && pick < 0; i++) { // a renamed one: "Diamond ..." or the area name
+                    var st = menu.slots.get(i).getItem();
+                    if (st.isEmpty()) continue;
+                    String nm = st.getHoverName().getString().toLowerCase(Locale.ROOT);
+                    if (nm.contains("diamond") || (!want.isBlank() && nm.contains(want))) pick = i;
+                }
+                if (pick >= 0) {
+                    Chat.msg("Lift: clicking slot " + pick + " (" + menu.slots.get(pick).getItem().getHoverName().getString() + ").");
+                    mc.gameMode.handleContainerInput(menu.containerId, pick, 0, ContainerInput.PICKUP, p);
+                    rescueStep = 5;
+                    rescueAt = now;
+                    return;
+                }
+                if (now - rescueAt > 2500 && !liftMenuReported) { // show what IS in the menu so it can be fixed
+                    liftMenuReported = true;
+                    StringBuilder sb = new StringBuilder();
+                    for (int i = 0; i < n; i++) {
+                        var st = menu.slots.get(i).getItem();
+                        if (!st.isEmpty()) sb.append(i).append("=").append(st.getHoverName().getString()).append(" | ");
+                    }
+                    Chat.msg("Lift menu has no diamond. Slots: " + sb);
+                }
+                if (now - rescueAt > 8000) {
                     Chat.msg("No diamond in the lift menu - stopping.");
                     p.closeContainer();
                     stop(mc);
@@ -883,6 +929,10 @@ public class HuntController {
     }
 
     private void startRescueSteps(long now, int step) {
+        liftNpcReported = false;
+        liftNpcSeen = false;
+        liftMenuReported = false;
+        lastLiftClick = 0;
         hopFailed.clear();
         hopTarget = null;
         rescueNoLeg = 0;
@@ -890,6 +940,19 @@ public class HuntController {
         rescueSince = now;
         rescueStep = step;
         setPhase(Phase.RESCUE, now);
+    }
+
+    /** Names of named entities within 12 blocks (for the "can't find the NPC" message). */
+    private String nearbyNames(Minecraft mc, LocalPlayer p) {
+        StringBuilder sb = new StringBuilder();
+        int n = 0;
+        for (Entity e : mc.level.getEntities((Entity) null, p.getBoundingBox().inflate(12))) {
+            var nm = e.getCustomName();
+            if (nm == null) continue;
+            if (n++ >= 8) break;
+            sb.append('"').append(cleanName(nm.getString())).append("\" ");
+        }
+        return n == 0 ? "none" : sb.toString();
     }
 
     /** The NPC behind the "Lift Operator" name tag (name tags are armor stands; the NPC stands right there). */
@@ -1143,7 +1206,13 @@ public class HuntController {
 
     /** Hands over to the HUNT loop; {@link #handleHole} keeps using the hole until it is gone. */
     private void beginHole(long now) {
+        if (now - hitAt > 3000) { // no hit just landed: never place a hole on its own
+            current = null;
+            setPhase(Phase.HUNT, now);
+            return;
+        }
         holePending = true;
+        swapTicks = 0;
         holeLeft = Math.max(1, holeCount);
         holeStart = now;
         holeHeld = false;
@@ -1191,6 +1260,12 @@ public class HuntController {
             holeUseTick = 0;
             holeTries = 0;
             lastUseAt = 0;
+            swapTicks = SWAP_TICKS;
+            return;
+        }
+        if (swapTicks > 0) { // short pause after the swap, then click
+            swapTicks--;
+            holeStart = now;
             return;
         }
         holeHeld = true;
