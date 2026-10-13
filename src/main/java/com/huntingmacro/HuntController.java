@@ -40,6 +40,7 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Properties;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -154,6 +155,16 @@ public class HuntController {
     private long holeEndsAt;
     /** Zombie we hit just before the hole, and the holes still waiting to see their zombie get sucked in. */
     private Entity lastHit;
+    /**
+     * The black hole tells us when it is done with a chat line ("You caught x2 Miner Zombie Shards!"). A new hole is
+     * only placed after that line; it also gives the exact time one hole takes.
+     */
+    public volatile boolean caughtGate = true;
+    public volatile String caughtText = "You caught";
+    public volatile int shards, caughtMsgs;
+    private int caughtSamples;
+    private boolean holeOut, warnedNoCaught;
+    private long holeOutAt;
     private int holeLeft;
     /** Black holes placed in a row after every hit (the item has to come back between them). */
     public volatile int holeCount = 2;
@@ -298,6 +309,32 @@ public class HuntController {
         Chat.msg("Refreshed " + n + " grey zombies (" + why + "): they can be hit again.");
     }
 
+    private static final Pattern CAUGHT_COUNT = Pattern.compile("[x\u00d7]\\s*(\\d+)");
+
+    /** Called for every chat/system line. */
+    public void onChat(String raw) {
+        if (!running || raw == null) return;
+        String t = raw.replaceAll("\u00a7.", "");
+        if (caughtText.isBlank() || !t.toLowerCase(Locale.ROOT).contains(caughtText.toLowerCase(Locale.ROOT))) return;
+        long now = System.currentTimeMillis();
+        caughtMsgs++;
+        Matcher m = CAUGHT_COUNT.matcher(t);
+        shards += m.find() ? Integer.parseInt(m.group(1)) : 1;
+        if (!holeOut) return;
+        holeOut = false; // the hole we placed is finished: the next one may go down
+        holeEndsAt = now;
+        double sec = (now - holeOutAt) / 1000.0;
+        if (holeAuto && sec >= 0.5 && sec <= 60.0) { // exact: placed -> the chat line
+            holeTimeSec = caughtSamples == 0 ? sec : holeTimeSec * 0.7 + sec * 0.3;
+            holeTimeSec = Math.max(1.0, Math.min(60.0, holeTimeSec));
+            caughtSamples++;
+            holeSamples++;
+            Chat.msg(String.format(Locale.ROOT, "Hole finished after %.1fs, black hole time is now %.1fs (%d)", sec,
+                    holeTimeSec, caughtSamples));
+            saveLearned();
+        }
+    }
+
     private static double blend(double old, double sample) {
         return old <= 0 ? sample : old * 0.7 + sample * 0.3;
     }
@@ -328,7 +365,7 @@ public class HuntController {
                     || why == Entity.RemovalReason.CHANGED_DIMENSION) continue; // walked out of range, not sucked in
             double sec = (now - h.placedAt()) / 1000.0;
             if (sec < 1.0 || sec > 40.0) continue;
-            if (!holeAuto) continue;
+            if (!holeAuto || (caughtGate && caughtSamples > 0)) continue;
             holeTimeSec = holeSamples == 0 ? sec : holeTimeSec * 0.7 + sec * 0.3;
             holeTimeSec = Math.max(1.0, Math.min(60.0, holeTimeSec));
             holeSamples++;
@@ -369,6 +406,7 @@ public class HuntController {
         avoid.clear();
         blacklist.clear();
         holePending = false;
+        holeOut = false;
         holeMisses = 0;
         holeEndsAt = 0;
         pendingHoles.clear();
@@ -1082,6 +1120,19 @@ public class HuntController {
      * it vanished from the hotbar (or its stack shrank). Walking to the next zombie goes on meanwhile.
      */
     private void handleHole(Minecraft mc, LocalPlayer p, long now) {
+        if (caughtGate && holeOut) {
+            long maxWait = (long) (Math.max(8.0, holeTimeSec * 2 + 3) * 1000);
+            if (now - holeOutAt < maxWait) { // the last hole hasn't said it is done yet: hold the next one back
+                holeStart = now;
+                return;
+            }
+            holeOut = false;
+            if (!warnedNoCaught) {
+                warnedNoCaught = true;
+                Chat.msg("No \"" + caughtText + "\" line in chat for " + (maxWait / 1000) + "s: placing anyway. Check "
+                        + "/hunt caught (the text must match what the game prints).");
+            }
+        }
         int slot = holeSlot(p);
         if (slot < 0) {
             if (holeHeld) { // it disappeared from the hotbar: placed
@@ -1152,6 +1203,8 @@ public class HuntController {
         boolean first = holeLeft >= Math.max(1, holeCount); // timings/zombie are learned from the first hole only
         if (ok) {
             holesPlaced++;
+            holeOut = true;
+            holeOutAt = now;
             if (holeAuto && first) learnTimings(now, vanished);
             holeEndsAt = now + (long) (holeTimeSec * 1000); // the background timer: this hole is busy until then
             if (holeAuto && first && lastHit != null) pendingHoles.add(new PendingHole(lastHit, now));
@@ -1422,7 +1475,7 @@ public class HuntController {
     }
 
     public String status() {
-        return (running ? "RUNNING " + phase : "stopped") + " | area=" + (areaOn ? "x " + areaX1 + ".." + areaX2 + ", z " + areaZ1 + ".." + areaZ2 + ", y " + areaY1 + ".." + areaY2 : "off") + " | lava=" + lavaCount + "/" + lavaLimit + " | zone=\"" + (zoneGuard ? zoneText : "off") + "\" in=" + zoneOk + " | hits=" + hits + " holes=" + holesPlaced + " missed=" + holeMisses + " holeTime=" + String.format(Locale.ROOT, "%.1fs", holeTimeSec) + (holeAuto ? " (auto, " + holeSamples + " samples)" : " (manual)") + " learned[hit->hole=" + String.format(Locale.ROOT, "%.2f", hitToHoleSec) + "s register=" + String.format(Locale.ROOT, "%.2f", useLatencySec) + "s cooldown=" + String.format(Locale.ROOT, "%.1f", cooldownSec) + "s lead=" + String.format(Locale.ROOT, "%.2f", holeLeadSec) + "s n=" + timingSamples + "]" + " kills=" + kills + " holeTimer="
+        return (running ? "RUNNING " + phase : "stopped") + " | area=" + (areaOn ? "x " + areaX1 + ".." + areaX2 + ", z " + areaZ1 + ".." + areaZ2 + ", y " + areaY1 + ".." + areaY2 : "off") + " | lava=" + lavaCount + "/" + lavaLimit + " | zone=\"" + (zoneGuard ? zoneText : "off") + "\" in=" + zoneOk + " | hits=" + hits + " holes=" + holesPlaced + " missed=" + holeMisses + " holeTime=" + String.format(Locale.ROOT, "%.1fs", holeTimeSec) + (holeAuto ? " (auto, " + holeSamples + " samples)" : " (manual)") + " learned[hit->hole=" + String.format(Locale.ROOT, "%.2f", hitToHoleSec) + "s register=" + String.format(Locale.ROOT, "%.2f", useLatencySec) + "s cooldown=" + String.format(Locale.ROOT, "%.1f", cooldownSec) + "s lead=" + String.format(Locale.ROOT, "%.2f", holeLeadSec) + "s n=" + timingSamples + "]" + " kills=" + kills + " caught=" + caughtMsgs + " shards=" + shards + (holeOut ? " [hole out]" : "") + " holeTimer="
                 + (holeEndsAt > System.currentTimeMillis() ? String.format("%.1fs left", (holeEndsAt - System.currentTimeMillis()) / 1000.0) : "idle")
                 + " | zombies in view=" + lastCands.size() + " | mob=\"" + mobFilter + "\" axe=\"" + axeName
                 + "\" hole=\"" + holeName + "\" golden=" + golden;

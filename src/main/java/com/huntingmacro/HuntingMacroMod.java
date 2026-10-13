@@ -11,6 +11,7 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.minecraft.client.Minecraft;
@@ -31,6 +32,7 @@ public class HuntingMacroMod implements ClientModInitializer {
         controller = new HuntController(cache);
 
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> Updater.onJoin());
+        ClientReceiveMessageEvents.GAME.register((message, overlay) -> controller.onChat(message.getString()));
 
         ClientTickEvents.START_CLIENT_TICK.register(mc -> {
             cache.tick(mc);
@@ -260,6 +262,28 @@ public class HuntingMacroMod implements ClientModInitializer {
                         Chat.msg("Black holes placed after every hit: " + controller.holeCount);
                         return 1;
                     }))));
+            root.then(lit("caught")
+                    .executes(c -> {
+                        Chat.msg("Wait for \"" + controller.caughtText + "\" in chat before each black hole: "
+                                + (controller.caughtGate ? "ON" : "OFF") + " | lines seen " + controller.caughtMsgs
+                                + ", shards " + controller.shards + " (/hunt caught on|off|text <t>)");
+                        return 1;
+                    })
+                    .then(lit("on").executes(c -> {
+                        controller.caughtGate = true;
+                        Chat.msg("A new black hole waits for the chat line of the last one.");
+                        return 1;
+                    }))
+                    .then(lit("off").executes(c -> {
+                        controller.caughtGate = false;
+                        Chat.msg("Black holes no longer wait for the chat line (timer only).");
+                        return 1;
+                    }))
+                    .then(lit("text").then(arg("t", StringArgumentType.greedyString()).executes(c -> {
+                        controller.caughtText = StringArgumentType.getString(c, "t").trim();
+                        Chat.msg("Looking for \"" + controller.caughtText + "\" in chat.");
+                        return 1;
+                    }))));
             root.then(lit("golden")
                     .executes(c -> {
                         Chat.msg("Golden axe step: " + controller.golden + " (/hunt golden use|hit|off)");
@@ -377,6 +401,7 @@ public class HuntingMacroMod implements ClientModInitializer {
         Chat.msg(" /hunt lift go [warp] (test the lift trip now) | lift [<x> <y> <z> | npc <text> | warp <cmd>] - lift spot (default 45 150 15), NPC name and warp command");
         Chat.msg(" /hunt refresh <n> - every n kills (default 5) the grey, already-hit zombies become targets again; lift deep <text|off> - skip the lift when the sidebar says Deep Caverns");
         Chat.msg(" /hunt hole count <n> - black holes after every hit (default 2)");
+        Chat.msg(" /hunt caught [on|off|text <t>] - a new black hole waits for the \"You caught ...\" chat line of the last one (default ON)");
         Chat.msg(" /hunt range <blocks> - how far to look for zombies (default 80; pathing reaches ~44)");
         Chat.msg(" /hunt warp <command|off> - command to run when stuck or nothing to hunt (e.g. warp dr)");
         Chat.msg(" /hunt path - last pathfinder stats, /hunt highlight - toggle overlay, /hunt parkour on|off");
