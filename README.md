@@ -19,6 +19,8 @@ Needs in the **hotbar**: the Prime Huntaxe and the Medium Pocket Black Hole (equ
 
 Every 5 kills the greyed-out zombies (already hit) are reset so they can be hit again (`/hunt refresh <n>`). Hits are fast: it aims with a stiff spring and swings the moment the crosshair is on the zombie.
 
+A new black hole is only placed after the previous one has printed its "You caught xN ... Shards!" chat line (`/hunt caught`); that line also gives the exact hole time, so the timer is learned from it.
+
 ## Updating
 On joining a world the mod checks the `latest-build` release and tells you if a newer jar exists. `/hunt update` downloads it into your mods folder (SHA-256 checked against the release) and the old jar is removed when the game closes; restart the game to run the new code. `/hunt version` shows what you have. If the old jar is still in the mods folder after closing, delete it by hand.
 
