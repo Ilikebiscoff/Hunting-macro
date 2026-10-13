@@ -94,9 +94,16 @@ public class WalkCache {
             return flag(x, y, z, HAZARD);
         }
 
-        /** Standing here would touch lava/fire/cactus/magma/berries/campfire (cell, floor, head or neighbours). */
+        /** Standing here would touch lava/fire/cactus/magma/berries/campfire (in the cell, as the floor or at head height). */
         public boolean unsafe(int x, int y, int z) {
-            if (hazard(x, y, z) || hazard(x, y + 1, z) || hazard(x, y - 1, z)) return true;
+            return hazard(x, y, z) || hazard(x, y + 1, z) || hazard(x, y - 1, z);
+        }
+
+        /**
+         * Lava/fire/... right beside this cell. Allowed (stone ridges in a lava cave are all like this) but costly,
+         * and the follower creeps there instead of sprinting.
+         */
+        public boolean hazardNear(int x, int y, int z) {
             return hazard(x + 1, y, z) || hazard(x - 1, y, z) || hazard(x, y, z + 1) || hazard(x, y, z - 1)
                     || hazard(x + 1, y + 1, z) || hazard(x - 1, y + 1, z) || hazard(x, y + 1, z + 1)
                     || hazard(x, y + 1, z - 1);

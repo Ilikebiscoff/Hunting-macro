@@ -2053,11 +2053,11 @@ public class HuntController {
         var g = cache.grid();
         if (g == null) return false;
         BlockPos b = p.blockPosition();
-        if (g.edge(b.getX(), b.getY(), b.getZ())) return true;
+        if (g.edge(b.getX(), b.getY(), b.getZ()) || g.hazardNear(b.getX(), b.getY(), b.getZ())) return true;
         double yaw = Math.toRadians(p.getYRot());
         int ax = (int) Math.floor(p.getX() - Math.sin(yaw) * 1.2);
         int az = (int) Math.floor(p.getZ() + Math.cos(yaw) * 1.2);
-        return g.edge(ax, b.getY(), az);
+        return g.edge(ax, b.getY(), az) || g.hazardNear(ax, b.getY(), az);
     }
 
     /**

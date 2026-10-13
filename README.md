@@ -31,6 +31,8 @@ The lift trip always runs in full (warp, walk, click the Lift Operator, click th
 
 `/hunt scan` (once) and `/hunt debug` (every 4 s) report what the scan and the pathfinder see: entities in the box by type, zombies inside/outside the area, targets, the nearest target, the path map and the planner's status. If the planner finds no route, the macro walks straight at the nearest zombie when the line is safe ground.
 
+Lava caves: cells right beside lava are no longer forbidden for the pathfinder (stone ridges in a lava cave are all like that); they cost extra, the follower creeps there instead of sprinting, and standing spots near lava are allowed. Only cells that touch lava (in the cell, the floor or at head height) are never used. If the cell under you doesn't classify as standable, planning starts from your own cell, and the failure message says what the cell looked like.
+
 ## Updating
 On joining a world the mod checks the `latest-build` release and tells you if a newer jar exists. `/hunt update` downloads it into your mods folder (SHA-256 checked against the release) and the old jar is removed when the game closes; restart the game to run the new code. `/hunt version` shows what you have. If the old jar is still in the mods folder after closing, delete it by hand.
 
