@@ -27,6 +27,8 @@ The black hole is only used right after a hit has landed (short 2-tick swap paus
 
 Order per zombie: wait until the last black hole is (almost) done and its ability is ready, hit once, swap to the black hole in the same tick, click it once 2 ticks later while standing still, then walk to the next zombie. The next hit never starts before the hole is ready, so the hole is always placed right after the hit and never spams the cooldown message.
 
+The lift trip always runs in full (warp, walk, click the Lift Operator, click the diamond) before the macro looks at where it is; the Diamond Reserve zone and scan-area checks only apply once it is hunting again.
+
 ## Updating
 On joining a world the mod checks the `latest-build` release and tells you if a newer jar exists. `/hunt update` downloads it into your mods folder (SHA-256 checked against the release) and the old jar is removed when the game closes; restart the game to run the new code. `/hunt version` shows what you have. If the old jar is still in the mods folder after closing, delete it by hand.
 

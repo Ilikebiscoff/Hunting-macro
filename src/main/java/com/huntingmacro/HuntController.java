@@ -111,7 +111,7 @@ public class HuntController {
     public volatile String rescueCmd = "warp deep";
     public volatile int liftX = 45, liftY = 150, liftZ = 15;
     public volatile String liftNpc = "Lift Operator";
-    /** Sidebar text meaning "already in Deep Caverns": no lift needed, just hunt (empty = never skip). */
+    /** Sidebar area name that counts as "inside the hunting zone", and a hint for finding the lift menu item. */
     public volatile String deepText = "Deep Caverns";
     /** How long one black hole needs to fully suck an enemy in (s), and how long before that we hit the next one. */
     public volatile double holeTimeSec = 5.0;
@@ -788,15 +788,8 @@ public class HuntController {
             aim.retarget();
             return;
         }
-        // already in Deep Caverns (sidebar location): no lift needed, hunt the closest zombie
-        if (!deepText.isBlank() && now - deepCheck > 1000) {
-            deepCheck = now;
-            if (Boolean.TRUE.equals(Zone.contains(mc, deepText))) {
-                Chat.msg("Location is \"" + deepText + "\" - skipping the lift, hunting the closest zombie.");
-                endRescue(mc, p, now);
-                return;
-            }
-        }
+        // NOTE: no location check here. The whole lift trip (warp, walk, click the NPC, click the diamond) always runs
+        // first; only when it is finished does the normal hunting code look at where we are (zone / scan area).
         if (now - rescueSince > 120_000) {
             Chat.msg("Couldn't walk to the lift in 120 s (" + Planner.lastStats + ") - stopping.");
             stop(mc);

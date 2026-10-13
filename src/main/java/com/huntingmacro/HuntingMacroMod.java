@@ -206,15 +206,16 @@ public class HuntingMacroMod implements ClientModInitializer {
                     })
                     .then(lit("deep")
                             .executes(c -> {
-                                Chat.msg("If the sidebar location says \"" + controller.deepText
-                                        + "\" the lift is skipped and the closest zombie is hunted (/hunt lift deep <text|off>)");
+                                Chat.msg("Area name \"" + controller.deepText
+                                        + "\" counts as inside the hunting zone and is a hint for the lift menu item. The lift trip "
+                                        + "itself is never skipped (/hunt lift deep <text|off>)");
                                 return 1;
                             })
                             .then(arg("text", StringArgumentType.greedyString()).executes(c -> {
                                 String t = StringArgumentType.getString(c, "text").trim();
                                 controller.deepText = t.equalsIgnoreCase("off") ? "" : t;
-                                Chat.msg(controller.deepText.isEmpty() ? "Deep Caverns skip OFF."
-                                        : "Skipping the lift when the sidebar says \"" + controller.deepText + "\".");
+                                Chat.msg(controller.deepText.isEmpty() ? "Extra in-zone area name cleared."
+                                        : "Area \"" + controller.deepText + "\" now also counts as in-zone.");
                                 return 1;
                             })))
                     .then(lit("go")
@@ -412,7 +413,7 @@ public class HuntingMacroMod implements ClientModInitializer {
         Chat.msg(" /hunt hole auto [on|off|reset] - learn the black hole time from real holes (default ON, saved), /hunt hole time <s> | lead <s> - seconds a black hole needs to finish (default 5) and how long before that the next zombie is hit (default 0.5)");
         Chat.msg(" /hunt lava [on|off|limit <n>] - after more than 3 lava incidents: /warp deep, walk to the lift, click the Lift Operator, click the diamond");
         Chat.msg(" /hunt lift go [warp] (test the lift trip now) | lift [<x> <y> <z> | npc <text> | warp <cmd>] - lift spot (default 45 150 15), NPC name and warp command");
-        Chat.msg(" /hunt refresh <n> - every n kills (default 5) the grey, already-hit zombies become targets again; lift deep <text|off> - skip the lift when the sidebar says Deep Caverns");
+        Chat.msg(" /hunt refresh <n> - every n kills (default 5) the grey, already-hit zombies become targets again; lift deep <text|off> - extra sidebar area that counts as in-zone");
         Chat.msg(" /hunt hole count <n> - black holes after every hit (default 1)");
         Chat.msg(" /hunt caught [on|off|text <t>|mob <t>|counts <2,3|any>] - a new black hole waits for the \"You caught a Miner Zombie Shard!\" chat line of the last one (default ON; counts default: any, a single shard has no xN)");
         Chat.msg(" /hunt range <blocks> - how far to look for zombies (default 80; pathing reaches ~44)");
