@@ -236,7 +236,15 @@ public final class Updater {
         return null;
     }
 
+    /** Last thing the updater said (shown in the settings screen). */
+    static volatile String lastMessage = "";
+
+    static String shortVersion() {
+        return "v" + currentVersion();
+    }
+
     private static void say(String s) {
+        lastMessage = s;
         Minecraft mc = Minecraft.getInstance();
         mc.execute(() -> Chat.msg(s));
     }

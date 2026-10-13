@@ -13,7 +13,13 @@ import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
+import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
+import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
+import com.mojang.blaze3d.platform.InputConstants;
+import net.minecraft.client.KeyMapping;
+import net.minecraft.resources.Identifier;
+import org.lwjgl.glfw.GLFW;
 import net.minecraft.client.Minecraft;
 import net.minecraft.gizmos.GizmoStyle;
 import net.minecraft.gizmos.Gizmos;
@@ -24,12 +30,19 @@ import net.minecraft.world.phys.Vec3;
 public class HuntingMacroMod implements ClientModInitializer {
     private final WalkCache cache = new WalkCache();
     private HuntController controller;
-    private boolean highlight = true;
+    private static net.minecraft.client.KeyMapping openKey;
+    private boolean openGui;
 
     @Override
     public void onInitializeClient() {
         Planner.REACH = 2.6; // melee: stand within sword reach of the zombie, not mining reach
         controller = new HuntController(cache);
+        Config.init(controller);
+
+        openKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.huntingmacro.open_gui",
+                InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_RIGHT_SHIFT, KeyMapping.Category.MISC));
+        HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("huntingmacro", "status"),
+                (graphics, delta) -> HuntHud.render(graphics, delta, controller));
 
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> Updater.onJoin());
         ClientReceiveMessageEvents.GAME.register((message, overlay) -> controller.onChat(message.getString()));
@@ -37,11 +50,21 @@ public class HuntingMacroMod implements ClientModInitializer {
         ClientTickEvents.START_CLIENT_TICK.register(mc -> {
             cache.tick(mc);
             controller.tick(mc);
+            Session.tick(controller.isRunning());
+            while (openKey.consumeClick()) openGui = true;
+            if (openGui) {
+                if (mc.screen == null && mc.player != null) {
+                    openGui = false;
+                    mc.setScreen(new HuntScreen(controller));
+                } else if (mc.screen != null && !(mc.screen instanceof net.minecraft.client.gui.screens.ChatScreen)) {
+                    openGui = false; // some other screen is open: ignore
+                }
+            }
         });
 
         LevelRenderEvents.BEFORE_GIZMOS.register(context -> {
             controller.frame(Minecraft.getInstance());
-            if (highlight) {
+            if (Config.highlight) {
                 drawZombies();
                 drawPlan();
             }
@@ -51,7 +74,12 @@ public class HuntingMacroMod implements ClientModInitializer {
             Minecraft mc = Minecraft.getInstance();
             var root = LiteralArgumentBuilder.<FabricClientCommandSource>literal("hunt");
             root.then(lit("start").executes(c -> {
+                Config.save(controller);
                 if (controller.start(mc)) Chat.msg("Started.");
+                return 1;
+            }));
+            root.then(lit("gui").executes(c -> {
+                openGui = true;
                 return 1;
             }));
             root.then(lit("stop").executes(c -> {
@@ -89,8 +117,8 @@ public class HuntingMacroMod implements ClientModInitializer {
                 return 1;
             }));
             root.then(lit("highlight").executes(c -> {
-                highlight = !highlight;
-                Chat.msg("Highlight " + (highlight ? "ON" : "OFF"));
+                Config.highlight = !Config.highlight;
+                Chat.msg("Highlight " + (Config.highlight ? "ON" : "OFF"));
                 return 1;
             }));
             root.then(lit("mob")
@@ -432,6 +460,7 @@ public class HuntingMacroMod implements ClientModInitializer {
 
     private static void help() {
         Chat.msg("Commands:");
+        Chat.msg(" /hunt gui - open the settings screen (also Right Shift)");
         Chat.msg(" /hunt start | stop | status");
         Chat.msg(" /hunt update | update check | version - download the newest build (restart the game afterwards)");
         Chat.msg(" /hunt items - list your hotbar item names");

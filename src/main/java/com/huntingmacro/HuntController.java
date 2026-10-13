@@ -1781,6 +1781,59 @@ public class HuntController {
         return esp;
     }
 
+    // ---- read-only numbers for the settings screen / HUD ---------------------------------------------------
+
+    public int killCount() {
+        return kills;
+    }
+
+    public void resetStats() {
+        hits = 0;
+        holesPlaced = 0;
+        shards = 0;
+        kills = 0;
+        caughtMsgs = 0;
+        holeMisses = 0;
+        killsSinceRefresh = 0;
+    }
+
+    public String phaseLabel() {
+        if (!running) return "Stopped";
+        if (holePending) return "Black hole";
+        return switch (phase) {
+            case HUNT -> "Hunting";
+            case HIT -> "Attacking";
+            case GOLDEN -> "Golden axe";
+            case RETURN -> "Back to the zone";
+            case RESCUE -> "Lava rescue";
+        };
+    }
+
+    public int zombiesInView() {
+        return lastCands.size();
+    }
+
+    public int lavaIncidents() {
+        return lavaCount;
+    }
+
+    public boolean inZoneNow() {
+        return zoneOk;
+    }
+
+    public boolean holeReadyNow() {
+        return abilityReady(System.currentTimeMillis());
+    }
+
+    public double holeLeftSec() {
+        long left = holeEndsAt - System.currentTimeMillis();
+        return left > 0 ? left / 1000.0 : 0;
+    }
+
+    public boolean holeOutNow() {
+        return holeOut;
+    }
+
     public String status() {
         return (running ? "RUNNING " + phase : "stopped") + " | area=" + (areaOn ? "x " + areaX1 + ".." + areaX2 + ", z " + areaZ1 + ".." + areaZ2 + ", y " + areaY1 + ".." + areaY2 : "off") + " | lava=" + lavaCount + "/" + lavaLimit + " | zone=\"" + (zoneGuard ? zoneText : "off") + "\" in=" + zoneOk + " | hits=" + hits + " holes=" + holesPlaced + " missed=" + holeMisses + " holeTime=" + String.format(Locale.ROOT, "%.1fs", holeTimeSec) + (holeAuto ? " (auto, " + holeSamples + " samples)" : " (manual)") + " learned[hit->hole=" + String.format(Locale.ROOT, "%.2f", hitToHoleSec) + "s register=" + String.format(Locale.ROOT, "%.2f", useLatencySec) + "s cooldown=" + String.format(Locale.ROOT, "%.1f", cooldownSec) + "s lead=" + String.format(Locale.ROOT, "%.2f", holeLeadSec) + "s n=" + timingSamples + "]" + " kills=" + kills + " ready=" + (abilityReady(System.currentTimeMillis()) ? "yes" : "no") + (readyAfterSec > 0 ? String.format(Locale.ROOT, "(%.1fs)", readyAfterSec) : "") + " caught=" + caughtMsgs + " shards=" + shards + (holeOut ? " [hole out]" : "") + " holeTimer="
                 + (holeEndsAt > System.currentTimeMillis() ? String.format("%.1fs left", (holeEndsAt - System.currentTimeMillis()) / 1000.0) : "idle")
