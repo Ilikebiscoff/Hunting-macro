@@ -528,6 +528,10 @@ public class HuntController {
             case RESCUE -> rescueStep(mc, p, now);
         }
         if (phase == Phase.HUNT || phase == Phase.RETURN) stuckCheck(mc, p, now);
+        if (debug && now - debugAt > 4000) {
+            debugAt = now;
+            for (String l : scanLines(mc)) Chat.msg("[" + phase + "] " + l);
+        }
     }
 
     // ---- lava ----------------------------------------------------------------------------------------------------
@@ -1023,8 +1027,8 @@ public class HuntController {
     /** Where to look for entities: the fixed area (plus a margin) or a box around us. */
     private AABB scanBox(LocalPlayer p) {
         if (!areaOn) return p.getBoundingBox().inflate(range, Math.min(range, 30), range);
-        return new AABB(Math.min(areaX1, areaX2) - 1, areaY1 - 4, Math.min(areaZ1, areaZ2) - 1,
-                Math.max(areaX1, areaX2) + 2, areaY2 + 5, Math.max(areaZ1, areaZ2) + 2);
+        return new AABB(Math.min(areaX1, areaX2) - 1, Math.min(areaY1, areaY2) - 6, Math.min(areaZ1, areaZ2) - 1,
+                Math.max(areaX1, areaX2) + 2, Math.max(areaY1, areaY2) + 7, Math.max(areaZ1, areaZ2) + 2);
     }
 
     /** Inside the fixed area (a block of slack in Y so zombies standing on the edge layers still count). */
@@ -1033,7 +1037,7 @@ public class HuntController {
         double x = e.getX(), y = e.getY(), z = e.getZ();
         return x >= Math.min(areaX1, areaX2) && x < Math.max(areaX1, areaX2) + 1
                 && z >= Math.min(areaZ1, areaZ2) && z < Math.max(areaZ1, areaZ2) + 1
-                && y >= Math.min(areaY1, areaY2) - 1 && y < Math.max(areaY1, areaY2) + 2;
+                && y >= Math.min(areaY1, areaY2) - 3 && y < Math.max(areaY1, areaY2) + 4;
     }
 
     /** "12.5M/20M❤", "1,200❤", "❤ 300", "(50%)" etc: the health part of a SkyBlock name tag. */
@@ -1061,7 +1065,63 @@ public class HuntController {
     }
 
     /** Names of zombies and nearby named armor stands, for /hunt scan. */
+    /** What the scan sees, step by step: where it stops finding targets or a path. */
+    public List<String> scanLines(Minecraft mc) {
+        List<String> out = new ArrayList<>();
+        var p = mc.player;
+        if (p == null || mc.level == null) return out;
+        List<Entity> all = mc.level.getEntities((Entity) null, scanBox(p));
+        Map<String, Integer> types = new java.util.TreeMap<>();
+        int zombies = 0, dead = 0, inA = 0, outside = 0, grey = 0, cands = 0;
+        Entity nearest = null, outEx = null;
+        double nd = Double.MAX_VALUE;
+        for (Entity e : all) {
+            types.merge(e.getType().getDescriptionId().replace("entity.minecraft.", ""), 1, Integer::sum);
+            if (e.getType() != EntityType.ZOMBIE) continue;
+            zombies++;
+            if (!e.isAlive()) {
+                dead++;
+                continue;
+            }
+            if (!inArea(e)) {
+                outside++;
+                outEx = e;
+                continue;
+            }
+            inA++;
+            if (tagged.containsKey(e.getId())) {
+                grey++;
+                continue;
+            }
+            cands++;
+            double d = e.distanceToSqr(p);
+            if (d < nd) {
+                nd = d;
+                nearest = e;
+            }
+        }
+        StringBuilder ty = new StringBuilder();
+        types.entrySet().stream().sorted((a, b) -> b.getValue() - a.getValue()).limit(6)
+                .forEach(en -> ty.append(en.getKey()).append(" x").append(en.getValue()).append(", "));
+        out.add(String.format(Locale.ROOT, "you %.0f %.0f %.0f | scan box x %d..%d z %d..%d y %d..%d (%s) | entities in box: %s",
+                p.getX(), p.getY(), p.getZ(), Math.min(areaX1, areaX2), Math.max(areaX1, areaX2),
+                Math.min(areaZ1, areaZ2), Math.max(areaZ1, areaZ2), Math.min(areaY1, areaY2), Math.max(areaY1, areaY2),
+                areaOn ? "on" : "OFF", ty.length() == 0 ? "none loaded" : ty));
+        out.add("zombies: " + zombies + " | inside the area: " + inA + " (grey/already hit " + grey + ") | outside the area: "
+                + outside + (outEx == null ? "" : String.format(Locale.ROOT, " e.g. at %.0f %.0f %.0f", outEx.getX(), outEx.getY(), outEx.getZ()))
+                + " | dead " + dead + " | TARGETS: " + cands);
+        out.add((nearest == null ? "nearest target: none" : String.format(Locale.ROOT, "nearest target %.0f %.0f %.0f, %.1f blocks",
+                nearest.getX(), nearest.getY(), nearest.getZ(), Math.sqrt(nd)))
+                + " | path map ready: " + (cache.grid() != null) + " | planner: " + Planner.lastStats
+                + " | path: " + (leg == null ? "none" : legCursor == null ? "leg" : (legCursor.idx + "/" + legCursor.pts.size() + " points")));
+        return out;
+    }
+
+    public volatile boolean debug;
+    private long debugAt;
+
     public void scan(Minecraft mc) {
+        for (String l : scanLines(mc)) Chat.msg(l);
         var p = mc.player;
         if (p == null || mc.level == null) return;
         List<Entity> all = mc.level.getEntities((Entity) null, p.getBoundingBox().inflate(30, 15, 30));
@@ -1505,9 +1565,19 @@ public class HuntController {
         if ((planDirty || now - lastPlanRequest > interval) && now - lastPlanRequest > 250) requestPlan(p, now, targets);
 
         if (leg == null) {
-            releaseMovement(mc);
             if (noLegSince == 0) noLegSince = now;
-            else if (now - noLegSince > 5000) { // nothing reachable: give those zombies a rest
+            boolean direct = false;
+            if (now - noLegSince > 1500 && !cands.isEmpty() && cache.grid() != null) {
+                // the planner has no route: walk straight at the nearest zombie when the straight line is safe ground
+                Entity c0 = cands.get(0);
+                if (Planner.walkable(cache.grid(), p.position(), c0.position())) {
+                    blindWalk(mc, p, centre(c0));
+                    moving = true;
+                    direct = true;
+                }
+            }
+            if (!direct) releaseMovement(mc);
+            if (now - noLegSince > 9000) { // nothing reachable at all: give those zombies a rest
                 for (Entity e : cands) tagged.put(e.getId(), now - TAG_MS + 6000);
                 noLegSince = 0;
                 planDirty = true;

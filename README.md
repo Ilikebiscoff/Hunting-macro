@@ -29,6 +29,8 @@ Order per zombie: wait until the last black hole is (almost) done and its abilit
 
 The lift trip always runs in full (warp, walk, click the Lift Operator, click the diamond) before the macro looks at where it is; the Diamond Reserve zone and scan-area checks only apply once it is hunting again.
 
+`/hunt scan` (once) and `/hunt debug` (every 4 s) report what the scan and the pathfinder see: entities in the box by type, zombies inside/outside the area, targets, the nearest target, the path map and the planner's status. If the planner finds no route, the macro walks straight at the nearest zombie when the line is safe ground.
+
 ## Updating
 On joining a world the mod checks the `latest-build` release and tells you if a newer jar exists. `/hunt update` downloads it into your mods folder (SHA-256 checked against the release) and the old jar is removed when the game closes; restart the game to run the new code. `/hunt version` shows what you have. If the old jar is still in the mods folder after closing, delete it by hand.
 

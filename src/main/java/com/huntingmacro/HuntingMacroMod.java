@@ -309,6 +309,11 @@ public class HuntingMacroMod implements ClientModInitializer {
                         Chat.msg("Pause after the swap: " + controller.swapDelayTicks + " ticks.");
                         return 1;
                     })));
+            root.then(lit("debug").executes(c -> {
+                controller.debug = !controller.debug;
+                Chat.msg("Debug " + (controller.debug ? "ON: prints what the scan and pathing see every 4 s" : "OFF"));
+                return 1;
+            }));
             root.then(lit("golden")
                     .executes(c -> {
                         Chat.msg("Golden axe step: " + controller.golden + " (/hunt golden use|hit|off)");
@@ -428,6 +433,7 @@ public class HuntingMacroMod implements ClientModInitializer {
         Chat.msg(" /hunt hole count <n> - black holes after every hit (default 1)");
         Chat.msg(" /hunt caught [on|off|text <t>|mob <t>|counts <2,3|any>] - a new black hole waits for the \"You caught a Miner Zombie Shard!\" chat line of the last one (default ON; counts default: any, a single shard has no xN)");
         Chat.msg(" /hunt swap <ticks> - pause after swapping to the black hole before the click (default 4)");
+        Chat.msg(" /hunt scan | /hunt debug - show what the scan and pathfinder see (zombies found, inside the area, nearest target, planner status)");
         Chat.msg(" /hunt range <blocks> - how far to look for zombies (default 80; pathing reaches ~44)");
         Chat.msg(" /hunt warp <command|off> - command to run when stuck or nothing to hunt (e.g. warp dr)");
         Chat.msg(" /hunt path - last pathfinder stats, /hunt highlight - toggle overlay, /hunt parkour on|off");
