@@ -1445,25 +1445,21 @@ public class HuntController {
             holeDone(mc, p, now, true, false);
             return;
         }
+        // exactly one click per hole: after it, a short moment to see the item go / stack shrink, then on to the
+        // next zombie (never click again: that is what placed two or three holes)
+        if (holeTries > 0) {
+            if (now - lastUseAt >= 350) holeDone(mc, p, now, true, false);
+            return;
+        }
         if (now < abilityReadyAt) { // "ability is on cooldown": wait, no clicking
             holeStart = now;
             return;
         }
-        // one click, then give it time to show (3x the usual delay, at least 1 s) before trying again; 2 tries max
-        long retry = Math.max(1000L, (long) (useLatencySec * 3000));
-        if (holeTries > 0 && now - lastUseAt >= retry) {
-            if (holeTries >= 2) { // two clicks and nothing happened
-                holeDone(mc, p, now, false, false);
-                return;
-            }
-        }
-        if (holeTries == 0 || now - lastUseAt >= retry) {
-            holeTries++;
-            lastUseAt = now;
-            if (holeUseStart == 0) holeUseStart = now;
-            mc.gameMode.useItem(p, InteractionHand.MAIN_HAND);
-            p.swing(InteractionHand.MAIN_HAND);
-        }
+        holeTries++;
+        lastUseAt = now;
+        if (holeUseStart == 0) holeUseStart = now;
+        mc.gameMode.useItem(p, InteractionHand.MAIN_HAND);
+        p.swing(InteractionHand.MAIN_HAND);
     }
 
     /**
