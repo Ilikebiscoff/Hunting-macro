@@ -66,7 +66,10 @@ public class HuntController {
     private static final long HIT_TIMEOUT_MS = 5000;
     /** The walk grid is 96 wide: zombies further out than this can be seen (ESP) but not pathed to yet. */
     private static final double PLAN_RADIUS = 44.0;
-    private static final long STUCK_MS = 8000;
+    /** No movement for this long = stuck; 20 s when lava is around so there is time to climb out. */
+    private static final long STUCK_MS = 6000, STUCK_LAVA_MS = 20_000;
+    /** This many lava blocks around us (3x3 wide, feet-1 to head+1) at a stuck check = escape with the warp. */
+    private static final int LAVA_AROUND = 3;
     private static final double STUCK_RADIUS = 3.0;
 
     private enum Phase { HUNT, HIT, GOLDEN, RETURN, RESCUE }
@@ -311,6 +314,7 @@ public class HuntController {
             if (why == Entity.RemovalReason.UNLOADED_TO_CHUNK || why == Entity.RemovalReason.UNLOADED_WITH_PLAYER
                     || why == Entity.RemovalReason.CHANGED_DIMENSION) continue;
             kills++;
+            stuckCount = 0; // a zombie died: not stuck
             killsSinceRefresh++;
             if (refreshEvery > 0 && killsSinceRefresh >= refreshEvery) refreshGrey(killsSinceRefresh + " kills");
         }
@@ -580,9 +584,13 @@ public class HuntController {
             Chat.msg("In lava - getting out (" + lavaCount + "x).");
             lavaMsg = true;
         }
-        if (now - lavaSince > 15_000) {
-            Chat.msg("Stuck in lava for 15 s - stopping.");
-            stop(mc);
+        if (now - lavaSince > STUCK_LAVA_MS) {
+            if (lavaRescue && lavaAround(mc, p) >= LAVA_AROUND) {
+                startRescue(mc, p, now, "Stuck in lava for " + STUCK_LAVA_MS / 1000 + " s");
+            } else {
+                Chat.msg("Stuck in lava for " + STUCK_LAVA_MS / 1000 + " s - stopping.");
+                stop(mc);
+            }
             return true;
         }
         mc.options.keyAttack.setDown(false);
@@ -612,6 +620,17 @@ public class HuntController {
         mc.options.keyLeft.setDown(false);
         mc.options.keyRight.setDown(false);
         return true;
+    }
+
+    /** Lava blocks in the 3x3x4 box around the player (feet-1 .. head+1). */
+    private static int lavaAround(Minecraft mc, LocalPlayer p) {
+        BlockPos me = p.blockPosition();
+        int n = 0;
+        for (int dx = -1; dx <= 1; dx++)
+            for (int dz = -1; dz <= 1; dz++)
+                for (int dy = -1; dy <= 2; dy++)
+                    if (mc.level.getFluidState(me.offset(dx, dy, dz)).is(net.minecraft.tags.FluidTags.LAVA)) n++;
+        return n;
     }
 
     /** Dry cell we can stand in: air at feet and head, solid non-lava floor, no fluid, no magma. */
@@ -1329,7 +1348,6 @@ public class HuntController {
     /** All hits are in: swap to the black hole in this same tick (click a few ticks later) or do the golden axe. */
     private void afterHit(Minecraft mc, LocalPlayer p, long now) {
         wait = 0;
-        stuckCount = 0; // a hit landed: we are not stuck
         int gs = golden == Golden.OFF ? -1 : findGolden(p);
         if (gs >= 0) {
             setPhase(Phase.GOLDEN, now);
@@ -1675,8 +1693,12 @@ public class HuntController {
         if (!moving || anchor == null || hDist(pos, anchor) > STUCK_RADIUS || Math.abs(pos.y - anchor.y) > 4) {
             anchor = pos;
             anchorTime = now;
-        } else if (now - anchorTime >= STUCK_MS) {
+        } else if (now - anchorTime >= (lavaAround(mc, p) >= LAVA_AROUND ? STUCK_LAVA_MS : STUCK_MS)) {
             anchorTime = now;
+            if (lavaRescue && lavaAround(mc, p) >= LAVA_AROUND) { // stuck among lava: get out with the warp
+                startRescue(mc, p, now, "Stuck next to lava (" + lavaAround(mc, p) + " lava blocks)");
+                return;
+            }
             stuckCount++;
             if (stuckRescue && stuckCount > stuckLimit) { // keeps getting stuck: /warp deep and the lift
                 startRescue(mc, p, now, "Stuck " + stuckCount + " times without moving");
