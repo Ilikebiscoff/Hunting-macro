@@ -8,7 +8,7 @@ import java.util.regex.Pattern;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.network.chat.Component;
-import net.minecraft.world.inventory.ClickType;
+import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -98,8 +98,8 @@ public class FusionMacro {
             return;
         }
 
-        mc.gameMode.handleInventoryMouseClick(screen.getMenu().containerId, target.index, 0,
-                ClickType.PICKUP, mc.player);
+        mc.gameMode.handleContainerInput(screen.getMenu().containerId, target.index, 0,
+                ContainerInput.PICKUP, mc.player);
         if (confirm) fusions++;
         deadline = now + GAP_MS;
         nextActionAt = now + baseDelayMs + rng.nextInt(Math.max(1, baseDelayMs / 2));
