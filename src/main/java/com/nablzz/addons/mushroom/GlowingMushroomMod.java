@@ -13,6 +13,8 @@ import com.nablzz.addons.Ui;
 import com.nablzz.addons.mushroom.pathing.Planner;
 import com.nablzz.addons.mushroom.pathing.WalkCache;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
+import java.util.function.IntConsumer;
+import java.util.function.IntSupplier;
 import net.minecraft.client.Minecraft;
 import net.minecraft.resources.Identifier;
 import net.minecraft.gizmos.GizmoStyle;
