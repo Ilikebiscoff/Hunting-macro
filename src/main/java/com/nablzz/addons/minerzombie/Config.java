@@ -1,6 +1,6 @@
-package com.nablzz.addons.hunting;
+package com.nablzz.addons.minerzombie;
 
-import com.nablzz.addons.hunting.pathing.Planner;
+import com.nablzz.addons.minerzombie.pathing.Planner;
 import net.fabricmc.loader.api.FabricLoader;
 
 import java.io.IOException;

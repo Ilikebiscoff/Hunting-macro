@@ -1,15 +1,17 @@
-package com.nablzz.addons.hunting;
+package com.nablzz.addons.minerzombie;
 
+import com.nablzz.addons.Feature;
 import com.nablzz.addons.NablzzAddons;
+import com.nablzz.addons.NablzzScreen;
+import com.nablzz.addons.Ui;
 import com.nablzz.addons.Updater;
-import com.nablzz.addons.hunting.pathing.Planner;
-import com.nablzz.addons.hunting.pathing.WalkCache;
+import com.nablzz.addons.minerzombie.pathing.Planner;
+import com.nablzz.addons.minerzombie.pathing.WalkCache;
 import com.mojang.brigadier.arguments.DoubleArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.builder.RequiredArgumentBuilder;
-import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -17,6 +19,7 @@ import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.minecraft.resources.Identifier;
+import java.util.Locale;
 import net.minecraft.client.Minecraft;
 import net.minecraft.gizmos.GizmoStyle;
 import net.minecraft.gizmos.Gizmos;
@@ -24,7 +27,7 @@ import net.minecraft.gizmos.TextGizmo;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
-public class HuntingMacroMod implements ClientModInitializer {
+public class MinerZombieHunting implements Feature {
     private final WalkCache cache = new WalkCache();
     private HuntController controller;
     private static HuntController instance;
@@ -35,7 +38,7 @@ public class HuntingMacroMod implements ClientModInitializer {
     }
 
     @Override
-    public void onInitializeClient() {
+    public void init() {
         Planner.REACH = 2.6; // melee: stand within sword reach of the zombie, not mining reach
         controller = new HuntController(cache);
         instance = controller;
@@ -69,7 +72,7 @@ public class HuntingMacroMod implements ClientModInitializer {
                 return 1;
             }));
             root.then(lit("gui").executes(c -> {
-                NablzzAddons.openGui(NablzzAddons.HUNT);
+                NablzzAddons.openGui("minerzombie");
                 return 1;
             }));
             root.then(lit("stop").executes(c -> {
@@ -435,7 +438,7 @@ public class HuntingMacroMod implements ClientModInitializer {
                 return 1;
             }));
             root.executes(c -> {
-                NablzzAddons.openGui(NablzzAddons.HUNT); // plain /hunt opens the settings screen
+                NablzzAddons.openGui("minerzombie"); // plain /hunt opens the settings screen
                 return 1;
             });
             dispatcher.register(root);
@@ -473,6 +476,190 @@ public class HuntingMacroMod implements ClientModInitializer {
         Chat.msg(" /hunt range <blocks> - how far to look for zombies (default 80; pathing reaches ~44)");
         Chat.msg(" /hunt warp <command|off> - command to run when stuck or nothing to hunt (e.g. warp dr)");
         Chat.msg(" /hunt path - last pathfinder stats, /hunt highlight - toggle overlay, /hunt parkour on|off");
+    }
+
+
+    // ---- Feature ------------------------------------------------------------------------------------------
+
+    @Override
+    public String id() {
+        return "minerzombie";
+    }
+
+    @Override
+    public String name() {
+        return "Miner Zombie Hunting";
+    }
+
+    @Override
+    public boolean isRunning() {
+        return controller.isRunning();
+    }
+
+    @Override
+    public String status() {
+        return controller.phaseLabel();
+    }
+
+    @Override
+    public void start(Minecraft mc) {
+        Config.save(controller);
+        controller.start(mc);
+    }
+
+    @Override
+    public void stop(Minecraft mc) {
+        controller.stop(mc);
+    }
+
+    @Override
+    public void saveSettings() {
+        Config.save(controller);
+    }
+
+    private double holeLeft() {
+        return Math.max(0, controller.holeLeftSec());
+    }
+
+    @Override
+    public void buildScreen(NablzzScreen.Builder ui) {
+        HuntController c = controller;
+
+        // ---- Dashboard
+        ui.tab("Dashboard", "D");
+        ui.section("Overview");
+        ui.hero(() -> c.isRunning() ? c.phaseLabel() + "  -  " + c.zombiesInView() + " zombies in view"
+                : "Press Start, then close this screen.", "Miner zombie hunting");
+        ui.tiles(() -> new String[][]{
+                {"" + c.killCount(), "Kills"},
+                {"" + c.holesPlaced, "Black holes"},
+                {"" + c.shards, "Shards"},
+                {String.format(Locale.ROOT, "%.0f", Session.perHour(c.shards)), "Shards / hour"},
+                {"" + c.hits, "Hits landed"},
+                {Session.clock(), "Run time"},
+        });
+        ui.section("Black hole");
+        ui.bar("Black hole", "Time left on the hole you placed, or whether the next one is ready.",
+                () -> {
+                    double left = holeLeft();
+                    return left > 0 ? Math.min(1.0, left / Math.max(1.0, c.holeTimeSec)) : (c.holeReadyNow() ? 1.0 : 0.0);
+                },
+                () -> {
+                    double left = holeLeft();
+                    if (left > 0) return String.format(Locale.ROOT, "out - %.1fs left", left);
+                    return c.holeReadyNow() ? "ready" : "on cooldown";
+                });
+        ui.info("Learned timings", "What the macro measured by itself (hit to hole, click to registered, ability cooldown).",
+                () -> c.timingSamples == 0 ? "nothing yet"
+                        : String.format(Locale.ROOT, "%d samples - hit>hole %.2fs - click %.2fs - cd %.1fs",
+                                c.timingSamples, c.hitToHoleSec, c.useLatencySec, c.readyAfterSec), Ui.MUTED);
+        ui.info("Safety", "Zone guard and lava incidents so far.",
+                () -> (c.inZoneNow() ? "inside zone" : "OUTSIDE zone") + "  -  lava " + c.lavaIncidents() + "/" + c.lavaLimit,
+                Ui.MUTED);
+        ui.section("Session");
+        ui.button("Reset statistics", "Sets kills, holes, shards and the session clock back to zero.", "Reset", false, () -> {
+            c.resetStats();
+            Session.reset();
+        });
+        ui.confirmButton("Reset all settings", "Puts every setting back to the built-in default (learned timings stay).", "Defaults", () -> Config.resetToDefaults(c));
+
+        // ---- Combat
+        ui.tab("Combat", "C");
+        ui.section("Weapon");
+        ui.text("Prime axe", "Part of the hotbar item name of your Prime Huntaxe.", () -> c.axeName, v -> c.axeName = v, 150, "name");
+        ui.islider("Hits per zombie", "How many times each zombie is hit before the black hole.", 1, 6, () -> c.hitsPerZombie, v -> c.hitsPerZombie = v, "");
+        ui.islider("Ticks between hits", "20 ticks = 1 second. The pet's double hit lands on the second swing.", 1, 20, () -> c.hitGapTicks, v -> c.hitGapTicks = v, " t");
+        ui.choice("Golden axe step", "Optional step before the black hole (off by default).",
+                new String[]{"Off", "Use", "Hit"}, () -> c.golden.ordinal() == 2 ? 0 : (c.golden == HuntController.Golden.USE ? 1 : 2),
+                i -> c.golden = i == 1 ? HuntController.Golden.USE : (i == 2 ? HuntController.Golden.HIT : HuntController.Golden.OFF));
+        ui.section("Targeting");
+        ui.text("Mob name filter", "Only hunt zombies whose name tag contains this. Empty = every zombie that has ESP.",
+                () -> c.mobFilter, v -> c.mobFilter = v, 150, "any zombie");
+        ui.dslider("Search range", "How far to look for zombies (the pathfinder reaches about 44 blocks).", 20, 150, 5, () -> c.range, v -> c.range = v, "%.0f blocks");
+        ui.islider("Refresh grey zombies", "Every N kills the already-hit (grey) zombies become targets again. 0 = never.", 0, 20, () -> c.refreshEvery, v -> c.refreshEvery = v, " kills");
+        ui.toggle("Gap jumps", "Let the pathfinder jump across one-block gaps.", () -> com.nablzz.addons.minerzombie.pathing.Planner.parkour,
+                v -> com.nablzz.addons.minerzombie.pathing.Planner.parkour = v);
+
+        // ---- Black hole
+        ui.tab("Black Hole", "B");
+        ui.section("Item");
+        ui.text("Hole item", "Part of the hotbar item name of the Medium Pocket Black Hole.", () -> c.holeName, v -> c.holeName = v, 170, "name");
+        ui.islider("Swap delay", "Ticks to wait after switching to the hole before the single click.", 1, 20, () -> c.swapDelayTicks, v -> c.swapDelayTicks = v, " t");
+        ui.islider("Holes per hit", "Black holes placed after every hit. One is what you want.", 1, 3, () -> c.holeCount, v -> c.holeCount = v, "");
+        ui.section("Timing");
+        ui.toggle("Wait for catch message", "Place the next hole only after the \"You caught\" chat line of the last one.", () -> c.caughtGate, v -> c.caughtGate = v);
+        ui.text("Catch message", "Chat text that means the last hole finished.", () -> c.caughtText, v -> c.caughtText = v, 150, "You caught");
+        ui.text("Catch mob", "The line must also contain this mob name.", () -> c.caughtMob, v -> c.caughtMob = v, 150, "any");
+        ui.toggle("Auto-learn timings", "Measure hole time, click delay and lead from real holes and keep them up to date.", () -> c.holeAuto, v -> {
+            c.holeAuto = v;
+            c.saveSettings();
+        });
+        ui.dslider("Hole duration", "How long one hole needs to suck a zombie in. Setting it by hand turns auto-learning off.", 1, 30, 0.5, () -> c.holeTimeSec,
+                v -> {
+                    c.holeTimeSec = v;
+                    c.holeAuto = false;
+                    c.saveSettings();
+                }, "%.1f s");
+        ui.dslider("Hit lead", "Hit the next zombie this long before the old hole ends.", 0, 5, 0.1, () -> c.holeLeadSec,
+                v -> {
+                    c.holeLeadSec = v;
+                    c.holeLeadManual = true;
+                    c.saveSettings();
+                }, "%.1f s");
+        ui.button("Forget learned timings", "Throws the measured values away; they are learned again from the next holes.", "Forget", false, c::forgetLearned);
+
+        // ---- Area & zone
+        ui.tab("Area", "A");
+        ui.section("Scan box");
+        ui.toggle("Use fixed box", "Only zombies inside this box get ESP and are hunted. Off = everything within the search range.", () -> c.areaOn, v -> c.areaOn = v);
+        ui.nums("X range", "West to east block coordinates (inclusive).", new String[]{"from", "to"},
+                new IntSupplier[]{() -> c.areaX1, () -> c.areaX2}, new IntConsumer[]{v -> c.areaX1 = v, v -> c.areaX2 = v});
+        ui.nums("Z range", "North to south block coordinates (inclusive).", new String[]{"from", "to"},
+                new IntSupplier[]{() -> c.areaZ1, () -> c.areaZ2}, new IntConsumer[]{v -> c.areaZ1 = v, v -> c.areaZ2 = v});
+        ui.nums("Y range", "Height of the box (zombies get a few blocks of slack).", new String[]{"from", "to"},
+                new IntSupplier[]{() -> c.areaY1, () -> c.areaY2}, new IntConsumer[]{v -> c.areaY1 = v, v -> c.areaY2 = v});
+        ui.button("Centre on me", "Sets X and Z to 40 blocks around where you stand (Y stays).", "Use position", false, () -> {
+            var p = Minecraft.getInstance().player;
+            if (p == null) return;
+            c.areaX1 = p.getBlockX() - 40;
+            c.areaX2 = p.getBlockX() + 40;
+            c.areaZ1 = p.getBlockZ() - 40;
+            c.areaZ2 = p.getBlockZ() + 40;
+            ui.markDirty();
+        });
+        ui.section("Zone guard");
+        ui.toggle("Stay in the zone", "If the sidebar shows another area, walk back to where you were 3 moves ago.", () -> c.zoneGuard, v -> c.zoneGuard = v);
+        ui.text("Zone name", "Sidebar text of the hunting area.", () -> c.zoneText, v -> c.zoneText = v, 150, "Diamond Reserve");
+        ui.text("Recovery command", "Run when stuck or nothing to hunt (without the slash). Empty = just re-plan.", () -> c.warpCmd, v -> c.warpCmd = v, 150, "none");
+        ui.dslider("Idle before recovery", "Seconds without a target before the recovery command runs.", 3, 60, 1, () -> c.idleWarpMs / 1000.0, v -> c.idleWarpMs = (long) (v * 1000), "%.0f s");
+
+        // ---- Safety
+        ui.tab("Safety", "S");
+        ui.section("Lava");
+        ui.toggle("Lava rescue trip", "After too many lava incidents: warp out, take the lift back down.", () -> c.lavaRescue, v -> c.lavaRescue = v);
+        ui.islider("Incidents before rescue", "More than this many lava incidents starts the rescue.", 1, 10, () -> c.lavaLimit, v -> c.lavaLimit = v, "");
+        ui.text("Rescue command", "Command that gets you out (without the slash).", () -> c.rescueCmd, v -> c.rescueCmd = v, 150, "warp deep");
+        ui.section("Lift");
+        ui.nums("Lift position", "Where the Lift Operator stands (x y z).", new String[]{"x", "y", "z"},
+                new IntSupplier[]{() -> c.liftX, () -> c.liftY, () -> c.liftZ}, new IntConsumer[]{v -> c.liftX = v, v -> c.liftY = v, v -> c.liftZ = v});
+        ui.text("NPC name", "Name of the lift NPC.", () -> c.liftNpc, v -> c.liftNpc = v, 150, "Lift Operator");
+        ui.text("Extra area text", "Another sidebar area that counts as in-zone (Deep Caverns).", () -> c.deepText, v -> c.deepText = v, 150, "Deep Caverns");
+        ui.button("Test the lift trip", "Runs the whole lift trip now (closes this screen).", "Run", false, () -> {
+            Config.save(c);
+            Minecraft mc = Minecraft.getInstance();
+            ui.closeScreen();
+            c.testLift(mc, true);
+        });
+
+        // ---- Visuals
+        ui.tab("Visuals", "V");
+        ui.section("In the world");
+        ui.toggle("ESP and path", "Boxes around zombies (green = target, yellow = current, grey = already hit) and the planned path.", () -> Config.highlight, v -> Config.highlight = v);
+        ui.toggle("Debug output", "Prints what the scan and pathfinder see into chat every few seconds.", () -> c.debug, v -> c.debug = v);
+        ui.section("On screen");
+        ui.toggle("Status panel", "The small panel with status, kills and shards.", () -> Config.hud, v -> Config.hud = v);
+        ui.choice("Panel corner", "Where the status panel sits.", new String[]{"Top left", "Top right", "Bottom left", "Bottom right"},
+                () -> Config.hudCorner, i -> Config.hudCorner = i);
     }
 
     private static LiteralArgumentBuilder<FabricClientCommandSource> lit(String name) {

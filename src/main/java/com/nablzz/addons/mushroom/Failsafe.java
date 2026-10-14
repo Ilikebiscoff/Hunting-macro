@@ -1,6 +1,6 @@
 package com.nablzz.addons.mushroom;
 
-import com.nablzz.addons.NablzzAddons;
+import com.nablzz.addons.Features;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.ConnectScreen;
 import net.minecraft.client.gui.screens.DisconnectedScreen;
@@ -99,7 +99,7 @@ public class Failsafe {
 
     /** /glowing start */
     public void begin(Minecraft mc) {
-        NablzzAddons.mushroomStarting(mc); // only one macro at a time
+        Features.starting("mushroom", mc); // only one macro at a time
         wanted = true;
         cmdTries = 0;
         reconnects = 0;

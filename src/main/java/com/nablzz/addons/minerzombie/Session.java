@@ -1,4 +1,4 @@
-package com.nablzz.addons.hunting;
+package com.nablzz.addons.minerzombie;
 
 /** Running time of the macro this game session (only counts while it is running), for the HUD and per-hour numbers. */
 public final class Session {

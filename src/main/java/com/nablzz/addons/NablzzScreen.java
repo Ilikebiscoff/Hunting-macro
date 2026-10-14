@@ -1,17 +1,5 @@
 package com.nablzz.addons;
 
-import com.nablzz.addons.hunting.Config;
-import com.nablzz.addons.hunting.HuntController;
-import com.nablzz.addons.hunting.HuntingMacroMod;
-import com.nablzz.addons.hunting.Session;
-import com.nablzz.addons.mushroom.Failsafe;
-import com.nablzz.addons.mushroom.GlowingMushroomMod;
-import com.nablzz.addons.mushroom.MacroController;
-import com.nablzz.addons.mushroom.MushroomConfig;
-import com.nablzz.addons.mushroom.MushroomTracker;
-import com.nablzz.addons.mushroom.ProfitHud;
-import com.nablzz.addons.mushroom.ProfitTracker;
-import com.nablzz.addons.mushroom.Route;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
@@ -43,13 +31,8 @@ public class NablzzScreen extends Screen {
     /** Set by any control that changed a setting; the file is written when the mouse is released / the screen closes. */
     private static boolean dirty;
 
-    private final HuntController c = HuntingMacroMod.controller();
-    private final MacroController m = GlowingMushroomMod.controller();
-    private final Failsafe fs = GlowingMushroomMod.failsafe();
-    private final Route rt = GlowingMushroomMod.route();
     private final long openedAt = System.nanoTime();
     private final List<Module> modules = new ArrayList<>();
-    private Module building;
     private int module;
     private float tabY = -1;
     private long lastFrame;
@@ -58,15 +41,21 @@ public class NablzzScreen extends Screen {
     private Row dragRow;
     private boolean mouseDown;
     private String hint = "";
-    private long confirmResetAt, confirmClearAt;
-    private int wx, wy, ww, wh, vx, vy, vw, vh;
+        private int wx, wy, ww, wh, vx, vy, vw, vh;
 
-    public NablzzScreen(int startModule) {
+    public NablzzScreen(String startModule) {
         super(Component.literal("Nablzz Addons"));
-        buildHunting();
-        buildMushroom();
+        for (Feature f : Features.all()) {
+            Module md = new Module(f.id(), f.name());
+            modules.add(md);
+            md.running = f::isRunning;
+            md.status = f::status;
+            md.toggle = f.hasRunButton() ? () -> toggleFeature(f) : null;
+            f.buildScreen(new Builder(md));
+        }
         buildGeneral();
-        module = Math.max(0, Math.min(modules.size() - 1, startModule));
+        module = modules.size() - 1; // General, unless the id matches a feature
+        for (int i = 0; i < modules.size(); i++) if (modules.get(i).id.equals(startModule)) module = i;
     }
 
     private Module mod() {
@@ -87,13 +76,12 @@ public class NablzzScreen extends Screen {
     public void onClose() {
         blur();
         saveAll();
-        NablzzAddons.rememberModule(module);
+        NablzzAddons.rememberModule(mod().id);
         super.onClose();
     }
 
     private void saveAll() {
-        Config.save(c);
-        MushroomConfig.save(m, fs);
+        Features.saveAll();
         Prefs.save();
     }
 
@@ -101,331 +89,174 @@ public class NablzzScreen extends Screen {
     // tabs
     // ===================================================================================================
 
-    private Module addModule(String name) {
-        Module md = new Module(name);
-        modules.add(md);
-        building = md;
-        return md;
-    }
-
-    private void buildHunting() {
-        Module md = addModule("Hunting");
-        md.running = c::isRunning;
-        md.status = c::phaseLabel;
-        md.toggle = this::toggleHunt;
-
-        // ---- Dashboard
-        Tab t = tab("Dashboard", "D");
-        Section s = t.section("Overview");
-        s.add(new HeroRow(md, () -> c.isRunning() ? c.phaseLabel() + "  -  " + c.zombiesInView() + " zombies in view"
-                : "Press Start, then close this screen.", "Miner zombie hunting"));
-        s.add(new TilesRow(() -> new String[][]{
-                {"" + c.killCount(), "Kills"},
-                {"" + c.holesPlaced, "Black holes"},
-                {"" + c.shards, "Shards"},
-                {String.format(Locale.ROOT, "%.0f", Session.perHour(c.shards)), "Shards / hour"},
-                {"" + c.hits, "Hits landed"},
-                {Session.clock(), "Run time"},
-        }));
-        s = t.section("Black hole");
-        s.add(new BarRow("Black hole", "Time left on the hole you placed, or whether the next one is ready.",
-                () -> {
-                    double left = holeLeft();
-                    return left > 0 ? Math.min(1.0, left / Math.max(1.0, c.holeTimeSec)) : (c.holeReadyNow() ? 1.0 : 0.0);
-                },
-                () -> {
-                    double left = holeLeft();
-                    if (left > 0) return String.format(Locale.ROOT, "out - %.1fs left", left);
-                    return c.holeReadyNow() ? "ready" : "on cooldown";
-                }));
-        s.add(new InfoRow("Learned timings", "What the macro measured by itself (hit to hole, click to registered, ability cooldown).",
-                () -> c.timingSamples == 0 ? "nothing yet"
-                        : String.format(Locale.ROOT, "%d samples - hit>hole %.2fs - click %.2fs - cd %.1fs",
-                                c.timingSamples, c.hitToHoleSec, c.useLatencySec, c.readyAfterSec), Ui.MUTED));
-        s.add(new InfoRow("Safety", "Zone guard and lava incidents so far.",
-                () -> (c.inZoneNow() ? "inside zone" : "OUTSIDE zone") + "  -  lava " + c.lavaIncidents() + "/" + c.lavaLimit,
-                Ui.MUTED));
-        s = t.section("Session");
-        s.add(new ButtonRow("Reset statistics", "Sets kills, holes, shards and the session clock back to zero.", "Reset", false, () -> {
-            c.resetStats();
-            Session.reset();
-        }));
-        s.add(new ButtonRow("Reset all settings", "Puts every setting back to the built-in default (learned timings stay).", "Defaults", false, () -> {
-            long now = System.currentTimeMillis();
-            if (now - confirmResetAt < 3000) {
-                Config.resetToDefaults(c);
-                confirmResetAt = 0;
-            } else {
-                confirmResetAt = now;
-            }
-        }) {
-            @Override
-            String buttonText() {
-                return System.currentTimeMillis() - confirmResetAt < 3000 ? "Click again" : "Defaults";
-            }
-        });
-
-        // ---- Combat
-        t = tab("Combat", "C");
-        s = t.section("Weapon");
-        s.add(text("Prime axe", "Part of the hotbar item name of your Prime Huntaxe.", () -> c.axeName, v -> c.axeName = v, 150, "name"));
-        s.add(islider("Hits per zombie", "How many times each zombie is hit before the black hole.", 1, 6, () -> c.hitsPerZombie, v -> c.hitsPerZombie = v, ""));
-        s.add(islider("Ticks between hits", "20 ticks = 1 second. The pet's double hit lands on the second swing.", 1, 20, () -> c.hitGapTicks, v -> c.hitGapTicks = v, " t"));
-        s.add(choice("Golden axe step", "Optional step before the black hole (off by default).",
-                new String[]{"Off", "Use", "Hit"}, () -> c.golden.ordinal() == 2 ? 0 : (c.golden == HuntController.Golden.USE ? 1 : 2),
-                i -> c.golden = i == 1 ? HuntController.Golden.USE : (i == 2 ? HuntController.Golden.HIT : HuntController.Golden.OFF)));
-        s = t.section("Targeting");
-        s.add(text("Mob name filter", "Only hunt zombies whose name tag contains this. Empty = every zombie that has ESP.",
-                () -> c.mobFilter, v -> c.mobFilter = v, 150, "any zombie"));
-        s.add(dslider("Search range", "How far to look for zombies (the pathfinder reaches about 44 blocks).", 20, 150, 5, () -> c.range, v -> c.range = v, "%.0f blocks"));
-        s.add(islider("Refresh grey zombies", "Every N kills the already-hit (grey) zombies become targets again. 0 = never.", 0, 20, () -> c.refreshEvery, v -> c.refreshEvery = v, " kills"));
-        s.add(toggle("Gap jumps", "Let the pathfinder jump across one-block gaps.", () -> com.nablzz.addons.hunting.pathing.Planner.parkour,
-                v -> com.nablzz.addons.hunting.pathing.Planner.parkour = v));
-
-        // ---- Black hole
-        t = tab("Black Hole", "B");
-        s = t.section("Item");
-        s.add(text("Hole item", "Part of the hotbar item name of the Medium Pocket Black Hole.", () -> c.holeName, v -> c.holeName = v, 170, "name"));
-        s.add(islider("Swap delay", "Ticks to wait after switching to the hole before the single click.", 1, 20, () -> c.swapDelayTicks, v -> c.swapDelayTicks = v, " t"));
-        s.add(islider("Holes per hit", "Black holes placed after every hit. One is what you want.", 1, 3, () -> c.holeCount, v -> c.holeCount = v, ""));
-        s = t.section("Timing");
-        s.add(toggle("Wait for catch message", "Place the next hole only after the \"You caught\" chat line of the last one.", () -> c.caughtGate, v -> c.caughtGate = v));
-        s.add(text("Catch message", "Chat text that means the last hole finished.", () -> c.caughtText, v -> c.caughtText = v, 150, "You caught"));
-        s.add(text("Catch mob", "The line must also contain this mob name.", () -> c.caughtMob, v -> c.caughtMob = v, 150, "any"));
-        s.add(toggle("Auto-learn timings", "Measure hole time, click delay and lead from real holes and keep them up to date.", () -> c.holeAuto, v -> {
-            c.holeAuto = v;
-            c.saveSettings();
-        }));
-        s.add(dslider("Hole duration", "How long one hole needs to suck a zombie in. Setting it by hand turns auto-learning off.", 1, 30, 0.5, () -> c.holeTimeSec,
-                v -> {
-                    c.holeTimeSec = v;
-                    c.holeAuto = false;
-                    c.saveSettings();
-                }, "%.1f s"));
-        s.add(dslider("Hit lead", "Hit the next zombie this long before the old hole ends.", 0, 5, 0.1, () -> c.holeLeadSec,
-                v -> {
-                    c.holeLeadSec = v;
-                    c.holeLeadManual = true;
-                    c.saveSettings();
-                }, "%.1f s"));
-        s.add(new ButtonRow("Forget learned timings", "Throws the measured values away; they are learned again from the next holes.", "Forget", false, c::forgetLearned));
-
-        // ---- Area & zone
-        t = tab("Area", "A");
-        s = t.section("Scan box");
-        s.add(toggle("Use fixed box", "Only zombies inside this box get ESP and are hunted. Off = everything within the search range.", () -> c.areaOn, v -> c.areaOn = v));
-        s.add(nums("X range", "West to east block coordinates (inclusive).", new String[]{"from", "to"},
-                new IntSupplier[]{() -> c.areaX1, () -> c.areaX2}, new IntConsumer[]{v -> c.areaX1 = v, v -> c.areaX2 = v}));
-        s.add(nums("Z range", "North to south block coordinates (inclusive).", new String[]{"from", "to"},
-                new IntSupplier[]{() -> c.areaZ1, () -> c.areaZ2}, new IntConsumer[]{v -> c.areaZ1 = v, v -> c.areaZ2 = v}));
-        s.add(nums("Y range", "Height of the box (zombies get a few blocks of slack).", new String[]{"from", "to"},
-                new IntSupplier[]{() -> c.areaY1, () -> c.areaY2}, new IntConsumer[]{v -> c.areaY1 = v, v -> c.areaY2 = v}));
-        s.add(new ButtonRow("Centre on me", "Sets X and Z to 40 blocks around where you stand (Y stays).", "Use position", false, () -> {
-            var p = Minecraft.getInstance().player;
-            if (p == null) return;
-            c.areaX1 = p.getBlockX() - 40;
-            c.areaX2 = p.getBlockX() + 40;
-            c.areaZ1 = p.getBlockZ() - 40;
-            c.areaZ2 = p.getBlockZ() + 40;
-            dirty = true;
-        }));
-        s = t.section("Zone guard");
-        s.add(toggle("Stay in the zone", "If the sidebar shows another area, walk back to where you were 3 moves ago.", () -> c.zoneGuard, v -> c.zoneGuard = v));
-        s.add(text("Zone name", "Sidebar text of the hunting area.", () -> c.zoneText, v -> c.zoneText = v, 150, "Diamond Reserve"));
-        s.add(text("Recovery command", "Run when stuck or nothing to hunt (without the slash). Empty = just re-plan.", () -> c.warpCmd, v -> c.warpCmd = v, 150, "none"));
-        s.add(dslider("Idle before recovery", "Seconds without a target before the recovery command runs.", 3, 60, 1, () -> c.idleWarpMs / 1000.0, v -> c.idleWarpMs = (long) (v * 1000), "%.0f s"));
-
-        // ---- Safety
-        t = tab("Safety", "S");
-        s = t.section("Lava");
-        s.add(toggle("Lava rescue trip", "After too many lava incidents: warp out, take the lift back down.", () -> c.lavaRescue, v -> c.lavaRescue = v));
-        s.add(islider("Incidents before rescue", "More than this many lava incidents starts the rescue.", 1, 10, () -> c.lavaLimit, v -> c.lavaLimit = v, ""));
-        s.add(text("Rescue command", "Command that gets you out (without the slash).", () -> c.rescueCmd, v -> c.rescueCmd = v, 150, "warp deep"));
-        s = t.section("Lift");
-        s.add(nums("Lift position", "Where the Lift Operator stands (x y z).", new String[]{"x", "y", "z"},
-                new IntSupplier[]{() -> c.liftX, () -> c.liftY, () -> c.liftZ}, new IntConsumer[]{v -> c.liftX = v, v -> c.liftY = v, v -> c.liftZ = v}));
-        s.add(text("NPC name", "Name of the lift NPC.", () -> c.liftNpc, v -> c.liftNpc = v, 150, "Lift Operator"));
-        s.add(text("Extra area text", "Another sidebar area that counts as in-zone (Deep Caverns).", () -> c.deepText, v -> c.deepText = v, 150, "Deep Caverns"));
-        s.add(new ButtonRow("Test the lift trip", "Runs the whole lift trip now (closes this screen).", "Run", false, () -> {
-            Config.save(c);
-            Minecraft mc = Minecraft.getInstance();
-            onClose();
-            c.testLift(mc, true);
-        }));
-
-        // ---- Visuals
-        t = tab("Visuals", "V");
-        s = t.section("In the world");
-        s.add(toggle("ESP and path", "Boxes around zombies (green = target, yellow = current, grey = already hit) and the planned path.", () -> Config.highlight, v -> Config.highlight = v));
-        s.add(toggle("Debug output", "Prints what the scan and pathfinder see into chat every few seconds.", () -> c.debug, v -> c.debug = v));
-        s = t.section("On screen");
-        s.add(toggle("Status panel", "The small panel with status, kills and shards.", () -> Config.hud, v -> Config.hud = v));
-        s.add(choice("Panel corner", "Where the status panel sits.", new String[]{"Top left", "Top right", "Bottom left", "Bottom right"},
-                () -> Config.hudCorner, i -> Config.hudCorner = i));
-    }
-
-    private void buildMushroom() {
-        Module md = addModule("Mushroom");
-        md.running = () -> m.isRunning() || fs.wanted();
-        md.status = () -> {
-            if (Failsafe.status != null) return Failsafe.status;
-            if (m.isRunning()) return "Mining";
-            return fs.wanted() ? "Waiting" : "Stopped";
-        };
-        md.toggle = this::toggleMushroom;
-
-        // ---- Dashboard
-        Tab t = tab("Dashboard", "D");
-        Section s = t.section("Overview");
-        s.add(new HeroRow(md, () -> m.isRunning() ? "Mining  -  " + MushroomTracker.MUSHROOMS.size() + " mushrooms known"
-                : (fs.wanted() ? "Waiting for the fail-safe to get you back into the cave." : "Press Start, then close this screen."),
-                "Glowing mushroom mining"));
-        s.add(new TilesRow(() -> new String[][]{
-                {"" + ProfitTracker.glowing, "Glowing mushrooms"},
-                {"" + (ProfitTracker.red + ProfitTracker.brown), "Red / brown"},
-                {coins(ProfitTracker.coins()), "Profit (coins)"},
-                {coins(ProfitTracker.perHour()), "Coins / hour"},
-                {"" + MushroomTracker.MUSHROOMS.size(), "Mushrooms known"},
-                {clock(ProfitTracker.macroMs), "Run time"},
-        }));
-        s = t.section("Status");
-        s.add(new InfoRow("Fail-safe", "Reconnects, rejoins SkyBlock and warps back when something goes wrong.",
-                () -> Failsafe.status != null ? Failsafe.status : (fs.enabled ? "armed" : "off"), Ui.MUTED));
-        s.add(new InfoRow("In the cave", "Whether the sidebar shows the cave name.",
-                () -> fs.inZone(Minecraft.getInstance()) ? "yes" : "no", Ui.MUTED));
-        s.add(new InfoRow("Route", "Recorded patrol waypoints.", () -> rt.size() + " waypoints  -  " + m.broken + " blocks broken", Ui.MUTED));
-        s.add(new ButtonRow("Reset profit", "Sets the counts, profit and the clock back to zero.", "Reset", false, ProfitTracker::reset));
-
-        // ---- Mining
-        t = tab("Mining", "M");
-        s = t.section("Behaviour");
-        s.add(choice("Mode", "Path: walk to the densest mushroom groups. Route: only walk the recorded route.",
-                new String[]{"Path", "Route"}, () -> m.pathMode ? 0 : 1, i -> m.pathMode = i == 0));
-        s.add(toggle("Nuker", "Break everything in reach without aiming. Off = aimed mining.", () -> m.nuker, v -> m.nuker = v));
-        s.add(dslider("Warp when nothing to reach", "Seconds without a reachable mushroom before /warp glowing. 0 = off.", 0, 60, 1,
-                () -> m.noMushroomWarpMs / 1000.0, v -> m.noMushroomWarpMs = (long) (v * 1000), "%.0f s"));
-        s.add(toggle("Gap jumps", "Let the pathfinder sprint-jump across one-block gaps.", () -> com.nablzz.addons.mushroom.pathing.Planner.parkour,
-                v -> com.nablzz.addons.mushroom.pathing.Planner.parkour = v));
-        s = t.section("Detection");
-        s.add(choice("Marker particle", "Which particles mark a glowing mushroom. Use /glowing scan to find others.",
-                new String[]{"Entity effect", "All potion types"},
-                () -> MushroomTracker.markers.equals(MushroomTracker.POTION_PARTICLES) ? 1 : 0,
-                i -> MushroomTracker.markers = i == 1 ? MushroomTracker.POTION_PARTICLES : MushroomTracker.DEFAULT_PARTICLES));
-        s = t.section("Route");
-        s.add(new InfoRow("Waypoints", "Patrol points used when no mushroom is known (and in route mode).", () -> "" + rt.size(), Ui.TEXT));
-        s.add(new ButtonRow("Add waypoint here", "Records the spot you are standing on.", "Add", true, () -> {
-            var p = Minecraft.getInstance().player;
-            if (p != null) rt.add(p.getX(), p.getY(), p.getZ());
-        }));
-        s.add(new ButtonRow("Remove last waypoint", "Undo the last recorded point.", "Undo", false, rt::removeLast));
-        s.add(new ButtonRow("Clear route", "Deletes every waypoint.", "Clear", false, () -> {
-            long now = System.currentTimeMillis();
-            if (now - confirmClearAt < 3000) {
-                rt.clear();
-                confirmClearAt = 0;
-            } else {
-                confirmClearAt = now;
-            }
-        }) {
-            @Override
-            String buttonText() {
-                return System.currentTimeMillis() - confirmClearAt < 3000 ? "Click again" : "Clear";
-            }
-        });
-
-        // ---- Fail-safe
-        t = tab("Fail-safe", "F");
-        s = t.section("Recovery");
-        s.add(toggle("Fail-safe", "Reconnect after a kick, rejoin SkyBlock, /warp glowing after dying or leaving the cave.", () -> fs.enabled, v -> fs.enabled = v));
-        s.add(text("Cave name", "Sidebar text that means you are in the cave.", () -> fs.zoneText, v -> fs.zoneText = v, 150, "glowing"));
-        s = t.section("Avoid list");
-        s.add(new InfoRow("Players", "Names you never want to share a lobby with.",
-                () -> fs.avoid.isEmpty() ? "empty" : String.join(", ", fs.avoid.list()), Ui.MUTED));
-        s.add(new AddRow("Add player", "Type a name and press Add. The macro swaps lobby if one of them is in the tab list.", "name", "Add", v -> {
-            if (!v.isEmpty()) fs.avoid.add(v);
-        }));
-        s.add(new ButtonRow("Clear the list", "Removes every name.", "Clear", false, fs.avoid::clear));
-        s.add(new ButtonRow("Check this lobby", "Looks for listed players in the tab list now.", "Check", false, () -> {
-            String who = fs.avoid.scan(Minecraft.getInstance());
-            flash(who == null ? "Nobody from the list is in this lobby." : who + " is in this lobby!");
-        }));
-
-        // ---- Display
-        t = tab("Display", "V");
-        s = t.section("Overlays");
-        s.add(toggle("Mushroom boxes", "Green boxes on glowing mushrooms, yellow on the one being mined, plus the planned path.",
-                () -> GlowingMushroomMod.highlight, v -> GlowingMushroomMod.highlight = v));
-        s.add(toggle("Profit panel", "The small panel with time, mushrooms and coins (top left).", () -> ProfitHud.enabled, v -> ProfitHud.enabled = v));
-        s = t.section("Settings");
-        s.add(new ButtonRow("Reset mushroom settings", "Puts every mushroom setting back to its default (route and avoid list stay).", "Defaults", false, () -> {
-            long now = System.currentTimeMillis();
-            if (now - confirmResetAt < 3000) {
-                MushroomConfig.resetToDefaults(m, fs);
-                confirmResetAt = 0;
-            } else {
-                confirmResetAt = now;
-            }
-        }) {
-            @Override
-            String buttonText() {
-                return System.currentTimeMillis() - confirmResetAt < 3000 ? "Click again" : "Defaults";
-            }
-        });
-    }
-
     private void buildGeneral() {
-        Module md = addModule("General");
-        md.running = () -> c.isRunning() || m.isRunning();
-        md.status = () -> c.isRunning() ? "Hunting" : (m.isRunning() ? "Mushroom" : "Idle");
+        Module md = new Module(NablzzAddons.GENERAL, "General");
+        modules.add(md);
+        md.running = () -> {
+            for (Feature f : Features.all()) if (f.isRunning()) return true;
+            return false;
+        };
+        md.status = () -> {
+            for (Feature f : Features.all()) if (f.isRunning()) return f.name();
+            return "Idle";
+        };
+        Builder ui = new Builder(md);
 
         // ---- Overview
-        Tab t = tab("Overview", "O");
-        Section s = t.section("Macros");
-        s.add(new InfoRow("Hunting", "Diamond Reserve miner zombies.", () -> c.isRunning() ? "running - " + c.phaseLabel() : "stopped",
-                Ui.TEXT));
-        s.add(new InfoRow("Mushroom", "Glowing mushroom mining.", () -> m.isRunning() ? "running" : (fs.wanted() ? "waiting" : "stopped"), Ui.TEXT));
-        s.add(new ButtonRow("Stop everything", "Stops both macros and the mushroom fail-safe.", "Stop all", false, () -> {
-            Minecraft mc = Minecraft.getInstance();
-            c.stop(mc);
-            fs.end(mc);
-        }));
-        s.add(new NoteRow("Only one macro runs at a time: starting one stops the other."));
+        ui.tab("Overview", "O");
+        ui.section("Macros");
+        for (Feature f : Features.all()) {
+            ui.info(f.name(), "State of this macro.", () -> f.isRunning() ? "running - " + f.status() : "stopped", Ui.TEXT);
+        }
+        ui.button("Stop everything", "Stops every macro.", "Stop all", false, () -> Features.stopAll(Minecraft.getInstance()));
+        ui.note("Only one macro runs at a time: starting one stops the other.");
 
         // ---- Appearance
-        t = tab("Appearance", "A");
-        s = t.section("Look");
-        s.add(choice("Accent colour", "Colour of this screen and the panels.", Ui.ACCENT_NAMES, () -> Prefs.accentIdx, i -> {
+        ui.tab("Appearance", "A");
+        ui.section("Look");
+        ui.choice("Accent colour", "Colour of this screen and the panels.", Ui.ACCENT_NAMES, () -> Prefs.accentIdx, i -> {
             Prefs.accentIdx = i;
             Ui.setAccent(i);
-        }));
+        });
 
         // ---- Updates
-        t = tab("Updates", "U");
-        s = t.section("Version");
-        s.add(new InfoRow("Installed / latest", "Versions of this jar and of the newest build.", Updater::versionInfo, Ui.TEXT));
-        s.add(new InfoRow("Last message", "What the updater said last.", () -> Updater.lastMessage, Ui.MUTED));
-        s.add(new ButtonRow("Check for update", "Looks at the latest build on GitHub.", "Check", true, () -> Updater.run(false, false)));
-        s.add(new ButtonRow("Download update", "Downloads the newest jar into your mods folder (hash-checked). Restart the game afterwards.", "Download", true, () -> Updater.run(false, true)));
-        s = t.section("About");
-        s.add(new NoteRow("Open this screen with Right Shift (change it in Controls under \"Nablzz Addons\"), /nablzz, /hunt or /glowing. "
-                + "The running macro pauses while this screen is open - close it to let it run. /hunt help and /glowing help list every command."));
-        s.add(new NoteRow("Heads-up: automating the game on Hypixel breaks their rules and can get your account banned. Use at your own risk."));
+        ui.tab("Updates", "U");
+        ui.section("Version");
+        ui.info("Installed / latest", "Versions of this jar and of the newest build.", Updater::versionInfo, Ui.TEXT);
+        ui.info("Last message", "What the updater said last.", () -> Updater.lastMessage, Ui.MUTED);
+        ui.button("Check for update", "Looks at the latest build on GitHub.", "Check", true, () -> Updater.run(false, false));
+        ui.button("Download update", "Downloads the newest jar into your mods folder (hash-checked). Restart the game afterwards.", "Download", true, () -> Updater.run(false, true));
+        ui.section("About");
+        ui.note("Open this screen with Right Shift (change it in Controls under \"Nablzz Addons\"), /nablzz, /hunt or /glowing. "
+                + "The running macro pauses while this screen is open - close it to let it run. /hunt help and /glowing help list every command.");
+        ui.note("Heads-up: automating the game on Hypixel breaks their rules and can get your account banned. Use at your own risk.");
     }
 
-    private static String coins(double v) {
-        if (ProfitTracker.glowingPrice < 0) return "?";
-        if (v >= 1_000_000) return String.format(Locale.ROOT, "%.2fM", v / 1_000_000);
-        if (v >= 1_000) return String.format(Locale.ROOT, "%.1fk", v / 1_000);
-        return String.format(Locale.ROOT, "%.0f", v);
+    /**
+     * What a {@link Feature} uses to describe its tabs: {@code tab(..)} starts a tab, {@code section(..)} a card in it,
+     * and the other methods add one row to the current card.
+     */
+    public final class Builder {
+        private final Module md;
+        private Tab tab;
+        private Section sec;
+
+        private Builder(Module md) {
+            this.md = md;
+        }
+
+        private void add(Row r) {
+            if (sec == null) throw new IllegalStateException("call tab() and section() first");
+            sec.add(r);
+        }
+
+        public void tab(String name, String letter) {
+            tab = new Tab(name, letter);
+            md.tabs.add(tab);
+            sec = null;
+        }
+
+        public void section(String title) {
+            sec = tab.section(title);
+        }
+
+        /** Big status + Start/Stop button for this feature. */
+        public void hero(Supplier<String> sub, String title) {
+            add(new HeroRow(md, sub, title));
+        }
+
+        /** Six stat tiles (value, caption). */
+        public void tiles(Supplier<String[][]> tiles) {
+            add(new TilesRow(tiles));
+        }
+
+        public void toggle(String label, String hint, BooleanSupplier get, Consumer<Boolean> set) {
+            add(new ToggleRow(label, hint, get, set));
+        }
+
+        public void text(String label, String hint, Supplier<String> get, Consumer<String> set, int fieldW, String placeholder) {
+            add(new TextRow(label, hint, new Field(false, fieldW, get, set, placeholder)));
+        }
+
+        public void islider(String label, String hint, int min, int max, IntSupplier get, IntConsumer set, String suffix) {
+            add(new SliderRow(label, hint, min, max, 1, () -> get.getAsInt(), v -> set.accept((int) Math.round(v)),
+                    v -> Math.round(v) + suffix));
+        }
+
+        public void dslider(String label, String hint, double min, double max, double step, DoubleSupplier get, DoubleConsumer set, String fmt) {
+            add(new SliderRow(label, hint, min, max, step, get, set, v -> String.format(Locale.ROOT, fmt, v)));
+        }
+
+        public void choice(String label, String hint, String[] options, IntSupplier get, IntConsumer set) {
+            add(new ChoiceRow(label, hint, options, get, set));
+        }
+
+        /** Row of number boxes (e.g. x / y / z). */
+        public void nums(String label, String hint, String[] captions, IntSupplier[] get, IntConsumer[] set) {
+            Field[] f = new Field[get.length];
+            for (int i = 0; i < f.length; i++) {
+                final int k = i;
+                f[i] = new Field(true, 48, () -> "" + get[k].getAsInt(), v -> set[k].accept(Integer.parseInt(v)), "0");
+            }
+            add(new NumbersRow(label, hint, captions, f));
+        }
+
+        public void button(String label, String hint, String text, boolean primary, Runnable action) {
+            add(new ButtonRow(label, hint, text, primary, action));
+        }
+
+        /** A button that needs a second click within 3 seconds (for destructive actions). */
+        public void confirmButton(String label, String hint, String text, Runnable action) {
+            add(new ConfirmButtonRow(label, hint, text, action));
+        }
+
+        public void info(String label, String hint, Supplier<String> value, int color) {
+            add(new InfoRow(label, hint, value, color));
+        }
+
+        public void info(String label, String hint, Supplier<String> value) {
+            info(label, hint, value, Ui.MUTED);
+        }
+
+        public void bar(String label, String hint, DoubleSupplier frac, Supplier<String> text) {
+            add(new BarRow(label, hint, frac, text));
+        }
+
+        public void note(String text) {
+            add(new NoteRow(text));
+        }
+
+        /** A text box with an Add button. */
+        public void add(String label, String hint, String placeholder, String buttonLabel, Consumer<String> action) {
+            add(new AddRow(label, hint, placeholder, buttonLabel, action));
+        }
+
+        /** A message in the bar at the bottom for a few seconds. */
+        public void flash(String s) {
+            NablzzScreen.this.flash(s);
+        }
+
+        /** Saves all settings and closes the screen (before something that needs the game, e.g. a test run). */
+        public void closeScreen() {
+            onClose();
+        }
+
+        /** Call after changing a setting from a button action so it is written to disk. */
+        public void markDirty() {
+            dirty = true;
+        }
     }
 
-    private static String clock(long ms) {
-        long sec = ms / 1000;
-        return String.format(Locale.ROOT, "%02d:%02d:%02d", sec / 3600, (sec / 60) % 60, sec % 60);
-    }
-
-    private double holeLeft() {
-        return Math.max(0, c.holeLeftSec());
+    private void toggleFeature(Feature f) {
+        Minecraft mc = Minecraft.getInstance();
+        if (f.isRunning()) {
+            f.stop(mc);
+        } else {
+            saveAll();
+            f.start(mc);
+            if (f.isRunning()) onClose(); // the macro pauses while a screen is open
+            else flash("Could not start - see the chat for why.");
+        }
     }
 
     // ===================================================================================================
@@ -761,28 +592,6 @@ public class NablzzScreen extends Screen {
         return super.charTyped(e);
     }
 
-    private void toggleHunt() {
-        Minecraft mc = Minecraft.getInstance();
-        if (c.isRunning()) {
-            c.stop(mc);
-        } else {
-            saveAll();
-            if (c.start(mc)) onClose(); // the macro pauses while a screen is open
-            else flash("Could not start - see the chat for why (hotbar item names?)");
-        }
-    }
-
-    private void toggleMushroom() {
-        Minecraft mc = Minecraft.getInstance();
-        if (m.isRunning() || fs.wanted()) {
-            fs.end(mc);
-        } else {
-            saveAll();
-            fs.begin(mc);
-            if (m.isRunning() || fs.wanted()) onClose();
-            else flash("Could not start - see the chat for why (shears in the hotbar?)");
-        }
-    }
 
     private String flashText = "";
     private long flashUntil;
@@ -811,14 +620,8 @@ public class NablzzScreen extends Screen {
     // model
     // ===================================================================================================
 
-    private Tab tab(String name, String letter) {
-        Tab t = new Tab(name, letter);
-        building.tabs.add(t);
-        return t;
-    }
-
     private static final class Module {
-        final String name;
+        final String id, name;
         final List<Tab> tabs = new ArrayList<>();
         int tab;
         float hov;
@@ -826,7 +629,8 @@ public class NablzzScreen extends Screen {
         Supplier<String> status = () -> "";
         Runnable toggle;
 
-        Module(String name) {
+        Module(String id, String name) {
+            this.id = id;
             this.name = name;
         }
     }
@@ -860,38 +664,6 @@ public class NablzzScreen extends Screen {
         void add(Row r) {
             rows.add(r);
         }
-    }
-
-    // ---- row factories ------------------------------------------------------------------------------
-
-    private Row toggle(String label, String hint, BooleanSupplier get, Consumer<Boolean> set) {
-        return new ToggleRow(label, hint, get, set);
-    }
-
-    private Row text(String label, String hint, Supplier<String> get, Consumer<String> set, int fieldW, String placeholder) {
-        return new TextRow(label, hint, new Field(false, fieldW, get, set, placeholder));
-    }
-
-    private Row islider(String label, String hint, int min, int max, IntSupplier get, IntConsumer set, String suffix) {
-        return new SliderRow(label, hint, min, max, 1, () -> get.getAsInt(), v -> set.accept((int) Math.round(v)),
-                v -> Math.round(v) + suffix);
-    }
-
-    private Row dslider(String label, String hint, double min, double max, double step, DoubleSupplier get, DoubleConsumer set, String fmt) {
-        return new SliderRow(label, hint, min, max, step, get, set, v -> String.format(Locale.ROOT, fmt, v));
-    }
-
-    private Row choice(String label, String hint, String[] options, IntSupplier get, IntConsumer set) {
-        return new ChoiceRow(label, hint, options, get, set);
-    }
-
-    private Row nums(String label, String hint, String[] captions, IntSupplier[] get, IntConsumer[] set) {
-        Field[] f = new Field[get.length];
-        for (int i = 0; i < f.length; i++) {
-            final int k = i;
-            f[i] = new Field(true, 48, () -> "" + get[k].getAsInt(), v -> set[k].accept(Integer.parseInt(v)), "0");
-        }
-        return new NumbersRow(label, hint, captions, f);
     }
 
     // ---- rows -------------------------------------------------------------------------------------------
@@ -1191,11 +963,41 @@ public class NablzzScreen extends Screen {
             Ui.textC(g, buttonText(), bx + bw / 2, by + 4, 0xFFFFFFFF);
         }
 
+        void activate() {
+            action.run();
+        }
+
         @Override
         boolean down(double mx, double my, int button) {
             if (mx < x + w - bw()) return false;
-            action.run();
+            activate();
             return true;
+        }
+    }
+
+    private final class ConfirmButtonRow extends ButtonRow {
+        final Runnable real;
+        long armedAt;
+
+        ConfirmButtonRow(String label, String hint, String text, Runnable real) {
+            super(label, hint, text, false, () -> {});
+            this.real = real;
+        }
+
+        @Override
+        String buttonText() {
+            return System.currentTimeMillis() - armedAt < 3000 ? "Click again" : text;
+        }
+
+        @Override
+        void activate() {
+            long now = System.currentTimeMillis();
+            if (now - armedAt < 3000) {
+                armedAt = 0;
+                real.run();
+            } else {
+                armedAt = now;
+            }
         }
     }
 

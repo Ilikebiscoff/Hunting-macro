@@ -2,12 +2,14 @@ package com.nablzz.addons.mushroom;
 
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
-import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
+import com.nablzz.addons.Feature;
 import com.nablzz.addons.NablzzAddons;
+import com.nablzz.addons.NablzzScreen;
+import com.nablzz.addons.Ui;
 import com.nablzz.addons.mushroom.pathing.Planner;
 import com.nablzz.addons.mushroom.pathing.WalkCache;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
@@ -23,7 +25,7 @@ import com.mojang.brigadier.arguments.ArgumentType;
 import com.mojang.brigadier.builder.RequiredArgumentBuilder;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 
-public class GlowingMushroomMod implements ClientModInitializer {
+public class GlowingMushroomMod implements Feature {
     private Route route;
     private MacroController controller;
     private final WalkCache cache = new WalkCache();
@@ -43,7 +45,7 @@ public class GlowingMushroomMod implements ClientModInitializer {
     }
 
     @Override
-    public void onInitializeClient() {
+    public void init() {
         route = new Route(FabricLoader.getInstance().getConfigDir().resolve("glowingmushroom_route.json"));
         controller = new MacroController(route, cache);
         failsafe = new Failsafe(controller);
@@ -276,11 +278,142 @@ public class GlowingMushroomMod implements ClientModInitializer {
                 return 1;
             }));
             root.executes(c -> {
-                NablzzAddons.openGui(NablzzAddons.MUSHROOM); // plain /glowing opens the settings screen
+                NablzzAddons.openGui("mushroom"); // plain /glowing opens the settings screen
                 return 1;
             });
             dispatcher.register(root);
         });
+    }
+
+
+    // ---- Feature ------------------------------------------------------------------------------------------
+
+    @Override
+    public String id() {
+        return "mushroom";
+    }
+
+    @Override
+    public String name() {
+        return "Glowing Mushrooms";
+    }
+
+    @Override
+    public boolean isRunning() {
+        return controller.isRunning() || failsafe.wanted();
+    }
+
+    @Override
+    public String status() {
+        if (Failsafe.status != null) return Failsafe.status;
+        if (controller.isRunning()) return "Mining";
+        return failsafe.wanted() ? "Waiting" : "Stopped";
+    }
+
+    @Override
+    public void start(Minecraft mc) {
+        MushroomConfig.save(controller, failsafe);
+        failsafe.begin(mc);
+    }
+
+    @Override
+    public void stop(Minecraft mc) {
+        failsafe.end(mc);
+    }
+
+    @Override
+    public void saveSettings() {
+        MushroomConfig.save(controller, failsafe);
+    }
+
+    private static String coins(double v) {
+        if (ProfitTracker.glowingPrice < 0) return "?";
+        if (v >= 1_000_000) return String.format(java.util.Locale.ROOT, "%.2fM", v / 1_000_000);
+        if (v >= 1_000) return String.format(java.util.Locale.ROOT, "%.1fk", v / 1_000);
+        return String.format(java.util.Locale.ROOT, "%.0f", v);
+    }
+
+    private static String clock(long ms) {
+        long sec = ms / 1000;
+        return String.format(java.util.Locale.ROOT, "%02d:%02d:%02d", sec / 3600, (sec / 60) % 60, sec % 60);
+    }
+
+    @Override
+    public void buildScreen(NablzzScreen.Builder ui) {
+        MacroController m = controller;
+        Failsafe fs = failsafe;
+        Route rt = route;
+        // ---- Dashboard
+        ui.tab("Dashboard", "D");
+        ui.section("Overview");
+        ui.hero(() -> m.isRunning() ? "Mining  -  " + MushroomTracker.MUSHROOMS.size() + " mushrooms known"
+                : (fs.wanted() ? "Waiting for the fail-safe to get you back into the cave." : "Press Start, then close this screen."),
+                "Glowing mushroom mining");
+        ui.tiles(() -> new String[][]{
+                {"" + ProfitTracker.glowing, "Glowing mushrooms"},
+                {"" + (ProfitTracker.red + ProfitTracker.brown), "Red / brown"},
+                {coins(ProfitTracker.coins()), "Profit (coins)"},
+                {coins(ProfitTracker.perHour()), "Coins / hour"},
+                {"" + MushroomTracker.MUSHROOMS.size(), "Mushrooms known"},
+                {clock(ProfitTracker.macroMs), "Run time"},
+        });
+        ui.section("Status");
+        ui.info("Fail-safe", "Reconnects, rejoins SkyBlock and warps back when something goes wrong.",
+                () -> Failsafe.status != null ? Failsafe.status : (fs.enabled ? "armed" : "off"), Ui.MUTED);
+        ui.info("In the cave", "Whether the sidebar shows the cave name.",
+                () -> fs.inZone(Minecraft.getInstance()) ? "yes" : "no", Ui.MUTED);
+        ui.info("Route", "Recorded patrol waypoints.", () -> rt.size() + " waypoints  -  " + m.broken + " blocks broken", Ui.MUTED);
+        ui.button("Reset profit", "Sets the counts, profit and the clock back to zero.", "Reset", false, ProfitTracker::reset);
+
+        // ---- Mining
+        ui.tab("Mining", "M");
+        ui.section("Behaviour");
+        ui.choice("Mode", "Path: walk to the densest mushroom groups. Route: only walk the recorded route.",
+                new String[]{"Path", "Route"}, () -> m.pathMode ? 0 : 1, i -> m.pathMode = i == 0);
+        ui.toggle("Nuker", "Break everything in reach without aiming. Off = aimed mining.", () -> m.nuker, v -> m.nuker = v);
+        ui.dslider("Warp when nothing to reach", "Seconds without a reachable mushroom before /warp glowing. 0 = off.", 0, 60, 1,
+                () -> m.noMushroomWarpMs / 1000.0, v -> m.noMushroomWarpMs = (long) (v * 1000), "%.0f s");
+        ui.toggle("Gap jumps", "Let the pathfinder sprint-jump across one-block gaps.", () -> com.nablzz.addons.mushroom.pathing.Planner.parkour,
+                v -> com.nablzz.addons.mushroom.pathing.Planner.parkour = v);
+        ui.section("Detection");
+        ui.choice("Marker particle", "Which particles mark a glowing mushroom. Use /glowing scan to find others.",
+                new String[]{"Entity effect", "All potion types"},
+                () -> MushroomTracker.markers.equals(MushroomTracker.POTION_PARTICLES) ? 1 : 0,
+                i -> MushroomTracker.markers = i == 1 ? MushroomTracker.POTION_PARTICLES : MushroomTracker.DEFAULT_PARTICLES);
+        ui.section("Route");
+        ui.info("Waypoints", "Patrol points used when no mushroom is known (and in route mode).", () -> "" + rt.size(), Ui.TEXT);
+        ui.button("Add waypoint here", "Records the spot you are standing on.", "Add", true, () -> {
+            var p = Minecraft.getInstance().player;
+            if (p != null) rt.add(p.getX(), p.getY(), p.getZ());
+        });
+        ui.button("Remove last waypoint", "Undo the last recorded point.", "Undo", false, rt::removeLast);
+        ui.confirmButton("Clear route", "Deletes every waypoint.", "Clear", rt::clear);
+
+        // ---- Fail-safe
+        ui.tab("Fail-safe", "F");
+        ui.section("Recovery");
+        ui.toggle("Fail-safe", "Reconnect after a kick, rejoin SkyBlock, /warp glowing after dying or leaving the cave.", () -> fs.enabled, v -> fs.enabled = v);
+        ui.text("Cave name", "Sidebar text that means you are in the cave.", () -> fs.zoneText, v -> fs.zoneText = v, 150, "glowing");
+        ui.section("Avoid list");
+        ui.info("Players", "Names you never want to share a lobby with.",
+                () -> fs.avoid.isEmpty() ? "empty" : String.join(", ", fs.avoid.list()), Ui.MUTED);
+        ui.add("Add player", "Type a name and press Add. The macro swaps lobby if one of them is in the tab list.", "name", "Add", v -> {
+            if (!v.isEmpty()) fs.avoid.add(v);
+        });
+        ui.button("Clear the list", "Removes every name.", "Clear", false, fs.avoid::clear);
+        ui.button("Check this lobby", "Looks for listed players in the tab list now.", "Check", false, () -> {
+            String who = fs.avoid.scan(Minecraft.getInstance());
+            ui.flash(who == null ? "Nobody from the list is in this lobby." : who + " is in this lobby!");
+        });
+
+        // ---- Display
+        ui.tab("Display", "V");
+        ui.section("Overlays");
+        ui.toggle("Mushroom boxes", "Green boxes on glowing mushrooms, yellow on the one being mined, plus the planned path.",
+                () -> GlowingMushroomMod.highlight, v -> GlowingMushroomMod.highlight = v);
+        ui.toggle("Profit panel", "The small panel with time, mushrooms and coins (top left).", () -> ProfitHud.enabled, v -> ProfitHud.enabled = v);
+        ui.section("Settings");
+        ui.confirmButton("Reset mushroom settings", "Puts every mushroom setting back to its default (route and avoid list stay).", "Defaults", () -> MushroomConfig.resetToDefaults(m, fs));
     }
 
     private static void help() {

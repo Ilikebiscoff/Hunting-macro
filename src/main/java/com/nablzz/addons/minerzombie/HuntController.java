@@ -1,6 +1,6 @@
-package com.nablzz.addons.hunting;
+package com.nablzz.addons.minerzombie;
 
-import com.nablzz.addons.NablzzAddons;
+import com.nablzz.addons.Features;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
@@ -23,8 +23,8 @@ import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 
-import com.nablzz.addons.hunting.pathing.Planner;
-import com.nablzz.addons.hunting.pathing.WalkCache;
+import com.nablzz.addons.minerzombie.pathing.Planner;
+import com.nablzz.addons.minerzombie.pathing.WalkCache;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -444,7 +444,7 @@ public class HuntController {
 
     public boolean start(Minecraft mc) {
         if (mc.player == null) return false;
-        NablzzAddons.huntingStarting(mc); // only one macro at a time
+        Features.starting("minerzombie", mc); // only one macro at a time
         if (findByName(mc.player, axeName) < 0) {
             Chat.msg("No item named \"" + axeName + "\" in your hotbar (prime hunt axe). Set it with /hunt axe <text>. Not started.");
             return false;

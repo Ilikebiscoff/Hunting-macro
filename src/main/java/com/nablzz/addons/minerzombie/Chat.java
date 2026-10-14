@@ -1,4 +1,4 @@
-package com.nablzz.addons.hunting;
+package com.nablzz.addons.minerzombie;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;

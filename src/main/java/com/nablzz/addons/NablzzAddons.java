@@ -2,8 +2,7 @@ package com.nablzz.addons;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
-import com.nablzz.addons.hunting.HuntController;
-import com.nablzz.addons.hunting.HuntingMacroMod;
+import com.nablzz.addons.minerzombie.MinerZombieHunting;
 import com.nablzz.addons.mushroom.GlowingMushroomMod;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
@@ -21,26 +20,28 @@ import org.lwjgl.glfw.GLFW;
  * screen (Right Shift, /nablzz, /hunt or /glowing) and one updater. Only one macro runs at a time.
  */
 public class NablzzAddons implements ClientModInitializer {
-    public static final int HUNT = 0, MUSHROOM = 1, GENERAL = 2;
+    /** Id of the General module (not a feature) for {@link #openGui}. */
+    public static final String GENERAL = "general";
 
     private static KeyMapping openKey;
-    private static volatile int pendingGui = -1;
-    private static int lastModule = HUNT;
+    private static volatile String pendingGui;
+    private static String lastModule = GENERAL;
 
-    /** Opens the settings screen on the given module as soon as it is possible (a tick later, after chat closes). */
-    public static void openGui(int module) {
-        pendingGui = module;
+    /** Opens the settings screen on the module with this id as soon as it is possible (a tick later, after chat closes). */
+    public static void openGui(String moduleId) {
+        pendingGui = moduleId;
     }
 
-    static void rememberModule(int module) {
-        lastModule = module;
+    static void rememberModule(String moduleId) {
+        lastModule = moduleId;
     }
 
     @Override
     public void onInitializeClient() {
         Prefs.init();
-        new HuntingMacroMod().onInitializeClient();
-        new GlowingMushroomMod().onInitializeClient();
+        // Add new features here: they get their own module in the settings screen automatically.
+        Features.register(new MinerZombieHunting());
+        Features.register(new GlowingMushroomMod());
 
         openKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.nablzzaddons.open_gui",
                 InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_RIGHT_SHIFT, KeyMapping.Category.MISC));
@@ -48,15 +49,15 @@ public class NablzzAddons implements ClientModInitializer {
 
         ClientTickEvents.START_CLIENT_TICK.register(mc -> {
             while (openKey.consumeClick()) {
-                if (pendingGui < 0) pendingGui = lastModule;
+                if (pendingGui == null) pendingGui = lastModule;
             }
-            if (pendingGui >= 0) {
+            if (pendingGui != null) {
                 if (mc.screen == null && mc.player != null) {
-                    int m = pendingGui;
-                    pendingGui = -1;
+                    String m = pendingGui;
+                    pendingGui = null;
                     mc.setScreen(new NablzzScreen(m));
                 } else if (mc.screen != null && !(mc.screen instanceof ChatScreen)) {
-                    pendingGui = -1; // some other screen is open: ignore
+                    pendingGui = null; // some other screen is open: ignore
                 }
             }
         });
@@ -69,8 +70,7 @@ public class NablzzAddons implements ClientModInitializer {
             });
             root.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("stop").executes(c -> {
                 Minecraft mc = Minecraft.getInstance();
-                HuntingMacroMod.controller().stop(mc);
-                GlowingMushroomMod.failsafe().end(mc);
+                Features.stopAll(mc);
                 Notify.msg("Everything stopped.");
                 return 1;
             }));
@@ -89,19 +89,5 @@ public class NablzzAddons implements ClientModInitializer {
                     })));
             dispatcher.register(root);
         });
-    }
-
-    // ---- only one macro at a time ------------------------------------------------------------------------
-
-    /** The hunting macro is about to start: the mushroom macro (and its fail-safe) must let go of the controls. */
-    public static void huntingStarting(Minecraft mc) {
-        var f = GlowingMushroomMod.failsafe();
-        if (f != null && (f.wanted() || GlowingMushroomMod.controller().isRunning())) f.end(mc);
-    }
-
-    /** The mushroom macro is about to start. */
-    public static void mushroomStarting(Minecraft mc) {
-        HuntController h = HuntingMacroMod.controller();
-        if (h != null && h.isRunning()) h.stop(mc);
     }
 }

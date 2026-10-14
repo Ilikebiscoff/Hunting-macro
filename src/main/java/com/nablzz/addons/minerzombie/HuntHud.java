@@ -1,4 +1,4 @@
-package com.nablzz.addons.hunting;
+package com.nablzz.addons.minerzombie;
 
 import com.nablzz.addons.NablzzScreen;
 import com.nablzz.addons.Ui;

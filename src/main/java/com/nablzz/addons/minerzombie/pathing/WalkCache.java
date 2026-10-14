@@ -1,4 +1,4 @@
-package com.nablzz.addons.hunting.pathing;
+package com.nablzz.addons.minerzombie.pathing;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
