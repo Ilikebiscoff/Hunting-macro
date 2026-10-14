@@ -535,6 +535,7 @@ public class HuntController {
             case RESCUE -> rescueStep(mc, p, now);
         }
         if (phase == Phase.HUNT || phase == Phase.RETURN) stuckCheck(mc, p, now);
+        if (phase == Phase.HUNT && !holePending) noPathCheck(mc, p, now);
         if (debug && now - debugAt > 4000) {
             debugAt = now;
             for (String l : scanLines(mc)) Chat.msg("[" + phase + "] " + l);
@@ -1713,6 +1714,27 @@ public class HuntController {
                 legCursor = null;
                 planDirty = true;
             }
+        }
+    }
+
+    /** No route to any zombie for this long without getting anywhere (e.g. stranded on a lava island). */
+    private static final long NO_PATH_MS = 10_000;
+    private long noPathAt;
+    private Vec3 noPathFrom;
+
+    /** Zombies exist but there is no path and we are not getting anywhere: warp out and take the lift. */
+    private void noPathCheck(Minecraft mc, LocalPlayer p, long now) {
+        if (leg != null || lastCands.isEmpty() || current != null) {
+            noPathAt = 0;
+            return;
+        }
+        Vec3 pos = p.position();
+        if (noPathAt == 0 || noPathFrom == null || hDist(pos, noPathFrom) > STUCK_RADIUS) {
+            noPathAt = now;
+            noPathFrom = pos;
+        } else if (now - noPathAt >= NO_PATH_MS && stuckRescue) {
+            noPathAt = 0;
+            startRescue(mc, p, now, "No path to any zombie for " + NO_PATH_MS / 1000 + " s");
         }
     }
 
