@@ -2,7 +2,7 @@
 
 One client-side Fabric mod (Minecraft Java 26.1.2, Java 25) with two Hypixel SkyBlock macros and one settings screen:
 
-- **Hunting**: Diamond Reserve miner zombies (details below)
+- **Miner Zombie Hunting**: Diamond Reserve miner zombies (details below)
 - **Mushroom**: glowing mushroom mining with a recorded route, fail-safe (reconnect / rejoin / warp back) and an avoid list
 
 Open the settings screen with **Right Shift** (rebind under Controls > "Nablzz Addons"), `/nablzz`, `/hunt` or `/glowing`.
@@ -13,9 +13,17 @@ the route and avoid list keep their old files.
 
 Replaces `hunting-macro-*.jar` and `glowing-mushroom-auto-*.jar`: delete both old jars from `mods/` when installing this one.
 
+## Adding a new feature
+
+1. Make a package `com.nablzz.addons.<name>` with a class that `implements Feature` (see `Feature.java`): id, name, `init()` (events, commands, HUD), start/stop/isRunning/status, `saveSettings()` and `buildScreen(ui)`.
+2. `buildScreen` describes the tabs with the `NablzzScreen.Builder`: `ui.tab(..)`, `ui.section(..)`, then `ui.toggle / text / islider / dslider / choice / nums / button / confirmButton / info / bar / note / add / hero / tiles`.
+3. Register it in `NablzzAddons.onInitializeClient()` with `Features.register(new MyFeature())`.
+
+It then gets its own module in the settings screen, a Start/Stop button and a header dot, and starting it stops any other running feature (call `Features.starting("<id>", mc)` at the top of its start). `/nablzz stop` and the General tab's "Stop everything" stop all features.
+
 ---
 
-# Hunting macro
+# Miner Zombie Hunting
 
 Client-side Fabric mod (Minecraft Java 26.1.2, Java 25) that hunts the Diamond Reserve miner zombies on
 Hypixel SkyBlock:
