@@ -2,6 +2,7 @@ package com.nablzz.addons;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
+import com.nablzz.addons.fusion.FusionFeature;
 import com.nablzz.addons.minerzombie.MinerZombieHunting;
 import com.nablzz.addons.mushroom.GlowingMushroomMod;
 import net.fabricmc.api.ClientModInitializer;
@@ -42,6 +43,7 @@ public class NablzzAddons implements ClientModInitializer {
         // Add new features here: they get their own module in the settings screen automatically.
         Features.register(new MinerZombieHunting());
         Features.register(new GlowingMushroomMod());
+        Features.register(new FusionFeature());
 
         openKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.nablzzaddons.open_gui",
                 InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_RIGHT_SHIFT, KeyMapping.Category.MISC));

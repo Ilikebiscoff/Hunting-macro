@@ -3,6 +3,7 @@
 One client-side Fabric mod (Minecraft Java 26.1.2, Java 25) with two Hypixel SkyBlock macros and one settings screen:
 
 - **Miner Zombie Hunting**: Diamond Reserve miner zombies (details below)
+- **Fusion Macro**: repeats the previous Fusion Box fusion and confirms it until the Hunting Box runs low on shards. Open the Fusion Box (do one fusion by hand first), then Start in the GUI or `/fusion start` / `/fusion stop` / `/fusion delay <ms>`
 - **Mushroom**: glowing mushroom mining with a recorded route, fail-safe (reconnect / rejoin / warp back) and an avoid list
 
 Open the settings screen with **Right Shift** (rebind under Controls > "Nablzz Addons"), `/nablzz`, `/hunt` or `/glowing`.
