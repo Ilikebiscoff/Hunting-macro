@@ -455,6 +455,7 @@ public class HuntController {
         if (golden != Golden.OFF && findGolden(mc.player) < 0) {
             Chat.msg("Warning: no golden axe in your hotbar; that step will be skipped.");
         }
+        stuckCount = 0;
         leg = null;
         legCursor = null;
         current = null;
@@ -541,6 +542,10 @@ public class HuntController {
     private long lavaSince;
     private boolean lavaMsg;
     private int lavaCount;
+    /** Times in a row the walk was stuck (no movement for STUCK_MS); too many -> warp out and take the lift. */
+    private int stuckCount;
+    public volatile boolean stuckRescue = true;
+    public volatile int stuckLimit = 5;
 
     /**
      * In lava: drop everything, hold jump (swim up) and walk to the nearest dry, safe standing cell within 6 blocks.
@@ -629,6 +634,11 @@ public class HuntController {
     private int liftUseTick;
 
     private void startRescue(Minecraft mc, LocalPlayer p, long now) {
+        startRescue(mc, p, now, "Stuck in lava " + lavaCount + " times");
+    }
+
+    private void startRescue(Minecraft mc, LocalPlayer p, long now, String why) {
+        stuckCount = 0;
         lavaSince = 0;
         lavaMsg = false;
         releaseKeys(mc);
@@ -638,7 +648,7 @@ public class HuntController {
         legCursor = null;
         recoverTicks = 0;
         wdCursor = null;
-        Chat.msg("Stuck in lava " + lavaCount + " times - /" + rescueCmd + ", then the lift at "
+        Chat.msg(why + " - /" + rescueCmd + ", then the lift at "
                 + liftX + " " + liftY + " " + liftZ + ".");
         rescueStep = 0;
         setPhase(Phase.RESCUE, now);
@@ -1319,6 +1329,7 @@ public class HuntController {
     /** All hits are in: swap to the black hole in this same tick (click a few ticks later) or do the golden axe. */
     private void afterHit(Minecraft mc, LocalPlayer p, long now) {
         wait = 0;
+        stuckCount = 0; // a hit landed: we are not stuck
         int gs = golden == Golden.OFF ? -1 : findGolden(p);
         if (gs >= 0) {
             setPhase(Phase.GOLDEN, now);
@@ -1666,6 +1677,11 @@ public class HuntController {
             anchorTime = now;
         } else if (now - anchorTime >= STUCK_MS) {
             anchorTime = now;
+            stuckCount++;
+            if (stuckRescue && stuckCount > stuckLimit) { // keeps getting stuck: /warp deep and the lift
+                startRescue(mc, p, now, "Stuck " + stuckCount + " times without moving");
+                return;
+            }
             if (!warpCmd.isBlank() && now - lastWarp >= 20_000) {
                 doWarp(mc, p, now, "Stuck for " + STUCK_MS / 1000 + "s");
             } else {

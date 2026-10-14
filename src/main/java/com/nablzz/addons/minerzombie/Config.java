@@ -88,6 +88,8 @@ public final class Config {
         p.setProperty("idleWarpMs", "" + c.idleWarpMs);
         p.setProperty("lavaRescue", "" + c.lavaRescue);
         p.setProperty("lavaLimit", "" + c.lavaLimit);
+        p.setProperty("stuckRescue", "" + c.stuckRescue);
+        p.setProperty("stuckLimit", "" + c.stuckLimit);
         p.setProperty("rescueCmd", c.rescueCmd);
         p.setProperty("liftX", "" + c.liftX);
         p.setProperty("liftY", "" + c.liftY);
@@ -133,6 +135,8 @@ public final class Config {
         c.idleWarpMs = (long) clamp(num(p, "idleWarpMs", c.idleWarpMs), 1000, 600_000);
         c.lavaRescue = bool(p, "lavaRescue", c.lavaRescue);
         c.lavaLimit = (int) clamp(num(p, "lavaLimit", c.lavaLimit), 1, 50);
+        c.stuckRescue = bool(p, "stuckRescue", c.stuckRescue);
+        c.stuckLimit = (int) clamp(num(p, "stuckLimit", c.stuckLimit), 1, 50);
         c.rescueCmd = str(p, "rescueCmd", c.rescueCmd);
         c.liftX = (int) num(p, "liftX", c.liftX);
         c.liftY = (int) num(p, "liftY", c.liftY);

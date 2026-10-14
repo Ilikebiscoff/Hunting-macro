@@ -640,6 +640,8 @@ public class MinerZombieHunting implements Feature {
         ui.section("Lava");
         ui.toggle("Lava rescue trip", "After too many lava incidents: warp out, take the lift back down.", () -> c.lavaRescue, v -> c.lavaRescue = v);
         ui.islider("Incidents before rescue", "More than this many lava incidents starts the rescue.", 1, 10, () -> c.lavaLimit, v -> c.lavaLimit = v, "");
+        ui.toggle("Rescue when stuck", "If the walk gets stuck (no movement for 8 s) more than the limit in a row, do the same rescue: warp out and take the lift.", () -> c.stuckRescue, v -> c.stuckRescue = v);
+        ui.islider("Stuck times before rescue", "More than this many stuck periods in a row starts the rescue. A landed hit resets the count.", 1, 20, () -> c.stuckLimit, v -> c.stuckLimit = v, "");
         ui.text("Rescue command", "Command that gets you out (without the slash).", () -> c.rescueCmd, v -> c.rescueCmd = v, 150, "warp deep");
         ui.section("Lift");
         ui.nums("Lift position", "Where the Lift Operator stands (x y z).", new String[]{"x", "y", "z"},
