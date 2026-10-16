@@ -103,6 +103,7 @@ public class MudwormMacro implements Feature {
     private boolean goalIsSpot;
     private final Map<BlockPos, Long> visited = new HashMap<>();
     private final Set<BlockPos> avoid = new HashSet<>();
+    private static final Learned LEARNED = new Learned();
     private Planner.Leg leg;
     private int idx;
     private long lastPlan, goalSince, nextAction, stuckAt;
@@ -161,6 +162,7 @@ public class MudwormMacro implements Feature {
     public void init() {
         route = new Route(FabricLoader.getInstance().getConfigDir().resolve("nablzz_mudworm_route.json"));
         load();
+        LEARNED.load(FabricLoader.getInstance().getConfigDir().resolve("nablz_mudworm_learned.txt"));
         KeyMapping waypointKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.nablzzaddons.mudworm_waypoint",
                 InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_P, KeyMapping.Category.MISC));
         ClientTickEvents.START_CLIENT_TICK.register(mc -> {
@@ -273,6 +275,7 @@ public class MudwormMacro implements Feature {
         lobbyStep = 0;
         stage = "Stopped";
         releaseKeys(mc);
+        LEARNED.save(true);
         Notify.msg("Mudworm macro stopped: " + spotsDone + " spots done, " + hops + " teleports.");
     }
 
@@ -301,6 +304,7 @@ public class MudwormMacro implements Feature {
         if (running || MudwormProfit.items() > 0) MudwormProfit.tickPrices(now);
         MudwormTracker.enabled = esp || running;
         if (MudwormTracker.enabled || MudwormTracker.scanning) MudwormTracker.tick(mc);
+        LEARNED.save(false);
         if (!running) return;
         if (lobbyStep != 0) { // swapping lobby: the player may be gone for a while
             lobbyTick(mc, now);
@@ -466,7 +470,7 @@ public class MudwormMacro implements Feature {
             idx = 0;
         }
         if ((leg == null && now - lastPlan > 500) || now - lastPlan > 2500) {
-            if (planner.request(cache.grid(), p.blockPosition(), List.of(goal), Set.of(), new HashSet<>(avoid))) lastPlan = now;
+            if (planner.request(cache.grid(), p.blockPosition(), List.of(goal), Set.of(), learnedAvoid())) lastPlan = now;
         }
         Vec3 target;
         if (leg == null || leg.path().isEmpty()) {
@@ -531,7 +535,11 @@ public class MudwormMacro implements Feature {
             stuckAt = now;
         } else if (now - stuckAt > 5000) {
             stuckAt = now;
-            if (leg != null && !leg.path().isEmpty()) avoid.add(BlockPos.containing(leg.path().get(Math.min(idx + 1, leg.path().size() - 1))));
+            if (leg != null && !leg.path().isEmpty()) {
+                BlockPos bad = BlockPos.containing(leg.path().get(Math.min(idx + 1, leg.path().size() - 1)));
+                avoid.add(bad);
+                LEARNED.addAvoid(bad); // remembered for every later lobby
+            }
             leg = null;
             lastPlan = 0;
             if (now - goalSince > 15_000 && goal != null) {
@@ -552,7 +560,7 @@ public class MudwormMacro implements Feature {
         if (!useAotv || now < noManaUntil) return false;
         int slot = findSlot(p, aotvName);
         if (slot < 0) return false;
-        if (routeTp.step(mc, p, now, aim, goal, hd) != RouteTeleport.Result.TELEPORT) return false;
+        if (routeTp.step(mc, p, now, aim, goal, hd, LEARNED) != RouteTeleport.Result.TELEPORT) return false;
         stage = "Teleport (right-click)";
         releaseMovement(mc);
         sneak(mc, false);
@@ -575,7 +583,8 @@ public class MudwormMacro implements Feature {
     /** A block you can land on: solid, with two free blocks above it. */
     private static boolean landable(Minecraft mc, BlockPos b) {
         var lv = mc.level;
-        return !lv.getBlockState(b).getCollisionShape(lv, b).isEmpty()
+        return !LEARNED.badLanding(b)
+                && !lv.getBlockState(b).getCollisionShape(lv, b).isEmpty()
                 && lv.getBlockState(b.above()).getCollisionShape(lv, b.above()).isEmpty()
                 && lv.getBlockState(b.above(2)).getCollisionShape(lv, b.above(2)).isEmpty()
                 && lv.getFluidState(b.above()).isEmpty();
@@ -699,6 +708,7 @@ public class MudwormMacro implements Feature {
                     etherStep = 2;
                     etherAt = now;
                 } else if (now - etherAt > 2500) {
+                    if (!onIt) LEARNED.addBadLanding(etherBlock); // something is in the way of this one
                     etherFail(mc, now, onIt ? "the camera never settled on the block" : "the crosshair is not on the block (something in the way?)");
                 }
             }
@@ -725,6 +735,7 @@ public class MudwormMacro implements Feature {
                     lastPlan = 0;
                     idx = 0;
                 } else if (now - etherAt > 900) {
+                    LEARNED.addBadLanding(etherBlock);
                     etherFail(mc, now, "shift + right-click sent but you did not move (no Ether Transmission upgrade, or too far/blocked?)");
                 }
             }
@@ -831,6 +842,12 @@ public class MudwormMacro implements Feature {
         KeyMapping k = mc.options.keyShift;
         k.setDown(want);
         if (k.isDown() != want) k.setDown(true); // toggle mode: a press flips it
+    }
+
+    private Set<BlockPos> learnedAvoid() {
+        Set<BlockPos> all = LEARNED.avoid();
+        all.addAll(avoid);
+        return all;
     }
 
     private void releaseMovement(Minecraft mc) {
@@ -942,6 +959,8 @@ public class MudwormMacro implements Feature {
         ui.islider("Teleport delay", "Time between route right-clicks.", 120, 800, () -> routeTp.delayMs, v -> routeTp.delayMs = v, " ms");
         ui.islider("Detour radius", "Spots farther than this from you are left for the route to reach.", 8, 100, () -> detourRadius, v -> detourRadius = v, " blocks");
         ui.info("Waypoints", "Recorded patrol points.", () -> route.size() + "");
+        ui.info("Learned", "What the pathfinder learned from getting stuck and from failed teleports (kept between lobbies and restarts).", LEARNED::summary);
+        ui.confirmButton("Forget what it learned", "Clears the blocked cells, bad landings and bad teleports.", "Forget", LEARNED::clear);
         ui.button("Add waypoint here", "Records the spot you are standing on (or press the Set waypoint key, P by default, in Controls).", "Add", true, () -> {
             var p = Minecraft.getInstance().player;
             if (p != null) route.add(p.getX(), p.getY(), p.getZ());
