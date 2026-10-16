@@ -76,6 +76,9 @@ public class MudwormMacro implements Feature {
     public volatile String toolName = "Aspect of the Void";
     public volatile int actDelayMs = 500;
     public volatile boolean grassOnly = true;
+    /** Follow the route; only detour to spots within {@link #detourRadius} blocks of where we are. */
+    public volatile boolean softRoute = true;
+    public volatile int detourRadius = 30;
     public volatile String particleIds = "minecraft:happy_villager";
 
     // ---- state ----
@@ -85,6 +88,7 @@ public class MudwormMacro implements Feature {
     private final HumanAim aim = new HumanAim();
     private Route route;
     private int waypoint;
+    private boolean afterSpot;
     private long runMs, lastTick;
     private String stage = "Stopped";
 
@@ -346,6 +350,17 @@ public class MudwormMacro implements Feature {
             return;
         }
         if (route != null && route.size() > 0) {
+            if (afterSpot) { // back from a detour: continue from the closest waypoint
+                afterSpot = false;
+                double bd = Double.MAX_VALUE;
+                for (int i = 0; i < route.size(); i++) {
+                    double d = route.get(i).distanceToSqr(p.position());
+                    if (d < bd) {
+                        bd = d;
+                        waypoint = i;
+                    }
+                }
+            }
             waypoint = waypoint % route.size();
             Vec3 w = route.get(waypoint);
             goal = BlockPos.containing(w.x, w.y - 0.5, w.z);
@@ -356,9 +371,11 @@ public class MudwormMacro implements Feature {
     private BlockPos nearestSpot(LocalPlayer p) {
         BlockPos best = null;
         double bd = Double.MAX_VALUE;
+        boolean soft = softRoute && route != null && route.size() > 0;
         for (BlockPos s : MudwormTracker.SPOTS.keySet()) {
             if (visited.containsKey(s)) continue;
             double d = s.getCenter().distanceToSqr(p.position());
+            if (soft && d > (double) detourRadius * detourRadius) continue; // far away: the route gets us there
             if (d < bd) {
                 bd = d;
                 best = s;
@@ -394,6 +411,7 @@ public class MudwormMacro implements Feature {
         }
         p.swing(InteractionHand.MAIN_HAND);
         spotsDone++;
+        afterSpot = true;
         visited.put(goal, now);
         goal = null;
         nextAction = now + actDelayMs;
@@ -725,6 +743,10 @@ public class MudwormMacro implements Feature {
                 Gizmos.line(pts.get(i).add(0, 0.1, 0), pts.get(i + 1).add(0, 0.1, 0), 0xFF30E0FF, 3f).setAlwaysOnTop();
         }
         if (route != null) {
+            for (int i = 0; i < route.size() && route.size() > 1; i++) {
+                Vec3 a = route.get(i), b = route.get((i + 1) % route.size());
+                Gizmos.line(a.add(0, 0.3, 0), b.add(0, 0.3, 0), 0xFFFF4040, 2f).setAlwaysOnTop();
+            }
             for (int i = 0; i < route.size(); i++) {
                 Vec3 w = route.get(i);
                 Gizmos.cuboid(new net.minecraft.world.phys.AABB(w.x - 0.3, w.y, w.z - 0.3, w.x + 0.3, w.y + 0.6, w.z + 0.3),
@@ -796,7 +818,9 @@ public class MudwormMacro implements Feature {
 
         ui.tab("Route", "R");
         ui.section("Patrol route");
-        ui.note("When no spot is in sight the macro walks (or teleports) between these waypoints in a loop.");
+        ui.note("Soft route: the macro follows these waypoints in a loop (walking, or teleporting for long hops). When a spot is within the detour radius it goes to it first, then carries on from the closest waypoint.");
+        ui.toggle("Soft route", "Follow the route and only detour to nearby spots. Off = always go to the nearest known spot first.", () -> softRoute, v -> softRoute = v);
+        ui.islider("Detour radius", "Spots farther than this from you are left for the route to reach.", 8, 100, () -> detourRadius, v -> detourRadius = v, " blocks");
         ui.info("Waypoints", "Recorded patrol points.", () -> route.size() + "");
         ui.button("Add waypoint here", "Records the spot you are standing on.", "Add", true, () -> {
             var p = Minecraft.getInstance().player;
@@ -842,6 +866,8 @@ public class MudwormMacro implements Feature {
             actDelayMs = Integer.parseInt(p.getProperty("actDelayMs", "" + actDelayMs).trim());
             particleIds = p.getProperty("particleIds", particleIds);
             grassOnly = Boolean.parseBoolean(p.getProperty("grassOnly", "" + grassOnly));
+            softRoute = Boolean.parseBoolean(p.getProperty("softRoute", "" + softRoute));
+            detourRadius = Integer.parseInt(p.getProperty("detourRadius", "" + detourRadius).trim());
         } catch (Exception ignored) {
             // keep defaults
         }
@@ -865,6 +891,8 @@ public class MudwormMacro implements Feature {
         p.setProperty("actDelayMs", "" + actDelayMs);
         p.setProperty("particleIds", particleIds);
         p.setProperty("grassOnly", "" + grassOnly);
+        p.setProperty("softRoute", "" + softRoute);
+        p.setProperty("detourRadius", "" + detourRadius);
         try (OutputStream out = Files.newOutputStream(file())) {
             p.store(out, "Nablzz Addons: mudworm macro");
         } catch (IOException ignored) {
