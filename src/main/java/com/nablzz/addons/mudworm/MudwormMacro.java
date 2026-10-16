@@ -569,9 +569,16 @@ public class MudwormMacro implements Feature {
             nextEther = now + 1200;
             return false;
         }
-        BlockHitResult h = rayHit(mc, p, eye, pick);
         etherBlock = pick;
-        etherAim = h != null ? h.getLocation() : new Vec3(pick.getX() + 0.5, pick.getY() + 0.9, pick.getZ() + 0.5);
+        // aim at the middle of the block when the line to it is clear, otherwise at any visible spot of it
+        Vec3 mid = pick.getCenter();
+        BlockHitResult toMid = mc.level.clip(new ClipContext(eye, mid, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, p));
+        if (toMid.getType() == HitResult.Type.BLOCK && toMid.getBlockPos().equals(pick)) {
+            etherAim = mid;
+        } else {
+            BlockHitResult h = rayHit(mc, p, eye, pick);
+            etherAim = h != null ? h.getLocation() : mid;
+        }
         etherStep = 1;
         etherAt = now;
         swapTicks = 4;
