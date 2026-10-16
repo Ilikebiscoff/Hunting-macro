@@ -80,6 +80,9 @@ public class MudwormMacro implements Feature {
     /** Follow the route; only detour to spots within {@link #detourRadius} blocks of where we are. */
     public volatile boolean softRoute = true;
     public volatile int detourRadius = 30;
+    /** Route waypoints: aim at the next one and spam the plain AOTV right-click (Instant Transmission), no shift. */
+    public volatile boolean routeTp = true;
+    public volatile int tpDelayMs = 250;
     public volatile String particleIds = "minecraft:happy_villager";
 
     // ---- state ----
@@ -111,6 +114,10 @@ public class MudwormMacro implements Feature {
     private long etherAt, nextEther, aotvOffUntil;
     private Vec3 etherFrom, etherAim;
     private int etherFails, swapTicks;
+    // route teleport spam
+    private long tpNext, tpOffUntil;
+    private Vec3 tpLast;
+    private int tpBlocked;
 
     // lobby swap
     private int lobbyStep;
@@ -342,6 +349,7 @@ public class MudwormMacro implements Feature {
             goal = null;
             return;
         }
+        if (!goalIsSpot && routeTp(mc, p, now, eye, hd)) return;
         boolean up = rise(p) > 1.0; // more than one block higher than we stand (a tree, a ledge): teleport up
         if (aotvReady(mc, p, now) && (hd > aotvMinDist || up) && tryEther(mc, p, now, eye, up)) return;
 
@@ -502,6 +510,43 @@ public class MudwormMacro implements Feature {
 
     private boolean aotvReady(Minecraft mc, LocalPlayer p, long now) {
         return useAotv && now >= noManaUntil && now >= nextEther && now >= aotvOffUntil && findSlot(p, aotvName) >= 0;
+    }
+
+    /**
+     * Route waypoints without walking: etherwarp (shift) up when the waypoint is well above us, otherwise face it and
+     * spam the plain right-click (Instant Transmission) until we are close. False = walk there instead.
+     */
+    private boolean routeTp(Minecraft mc, LocalPlayer p, long now, Vec3 eye, double hd) {
+        if (!routeTp || !useAotv || now < noManaUntil || now < tpOffUntil) return false;
+        int slot = findSlot(p, aotvName);
+        if (slot < 0) return false;
+        double dy = goal.getY() + 1.0 - p.getY();
+        if (dy > 3.0 && aotvReady(mc, p, now) && tryEther(mc, p, now, eye, true)) return true;
+        if (hd < 10.0 && Math.abs(dy) < 4.0) return false; // close: a teleport would overshoot, walk the rest
+        stage = "Teleport route";
+        releaseMovement(mc);
+        sneak(mc, false);
+        if (p.getInventory().getSelectedSlot() != slot) p.getInventory().setSelectedSlot(slot);
+        float[] a = angles(eye, goal.getCenter());
+        aim.setTarget(a[0], a[1], 900f, 1.3f);
+        if (now >= tpNext && aim.settled(p, 3f)) {
+            if (tpLast != null && p.position().distanceTo(tpLast) < 1.0) {
+                if (++tpBlocked >= 3) { // the clicks do nothing: wall in the way, no mana, or no upgrade
+                    tpBlocked = 0;
+                    tpLast = null;
+                    tpOffUntil = now + 8000;
+                    Notify.msg("Route teleport is not moving you (blocked or no mana) - walking for 8 s.");
+                    return false;
+                }
+            } else {
+                tpBlocked = 0;
+            }
+            tpLast = p.position();
+            mc.gameMode.useItem(p, InteractionHand.MAIN_HAND);
+            hops++;
+            tpNext = now + Math.max(120, tpDelayMs);
+        }
+        return true;
     }
 
     /** How far above our feet the goal (or the next stretch of the path) is: > 1 means we cannot just walk. */
@@ -847,6 +892,8 @@ public class MudwormMacro implements Feature {
         ui.section("Patrol route");
         ui.note("Soft route: the macro follows these waypoints in a loop (walking, or teleporting for long hops). When a spot is within the detour radius it goes to it first, then carries on from the closest waypoint.");
         ui.toggle("Soft route", "Follow the route and only detour to nearby spots. Off = always go to the nearest known spot first.", () -> softRoute, v -> softRoute = v);
+        ui.toggle("Teleport along the route", "Face the next waypoint and spam the plain Aspect of the Void right-click (no shift). Shift-etherwarp is only used to go up. Off = walk the route.", () -> routeTp, v -> routeTp = v);
+        ui.islider("Teleport delay", "Time between route right-clicks.", 120, 800, () -> tpDelayMs, v -> tpDelayMs = v, " ms");
         ui.islider("Detour radius", "Spots farther than this from you are left for the route to reach.", 8, 100, () -> detourRadius, v -> detourRadius = v, " blocks");
         ui.info("Waypoints", "Recorded patrol points.", () -> route.size() + "");
         ui.button("Add waypoint here", "Records the spot you are standing on.", "Add", true, () -> {
@@ -902,6 +949,8 @@ public class MudwormMacro implements Feature {
             grassOnly = Boolean.parseBoolean(p.getProperty("grassOnly", "" + grassOnly));
             softRoute = Boolean.parseBoolean(p.getProperty("softRoute", "" + softRoute));
             detourRadius = Integer.parseInt(p.getProperty("detourRadius", "" + detourRadius).trim());
+            routeTp = Boolean.parseBoolean(p.getProperty("routeTp", "" + routeTp));
+            tpDelayMs = Integer.parseInt(p.getProperty("tpDelayMs", "" + tpDelayMs).trim());
         } catch (Exception ignored) {
             // keep defaults
         }
@@ -928,6 +977,8 @@ public class MudwormMacro implements Feature {
         p.setProperty("grassOnly", "" + grassOnly);
         p.setProperty("softRoute", "" + softRoute);
         p.setProperty("detourRadius", "" + detourRadius);
+        p.setProperty("routeTp", "" + routeTp);
+        p.setProperty("tpDelayMs", "" + tpDelayMs);
         try (OutputStream out = Files.newOutputStream(file())) {
             p.store(out, "Nablzz Addons: mudworm macro");
         } catch (IOException ignored) {
