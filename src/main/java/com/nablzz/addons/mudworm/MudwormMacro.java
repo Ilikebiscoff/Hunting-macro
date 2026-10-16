@@ -598,7 +598,8 @@ public class MudwormMacro implements Feature {
         ui.section("Finding spots");
         ui.text("Marker particles", "Particle ids that mark a spot, comma separated. Run /mudworm scan next to one to list what is around.",
                 () -> particleIds, v -> particleIds = v, 190, "minecraft:happy_villager");
-        ui.button("Forget spots", "Clears every known spot.", "Clear", false, MudwormTracker::clear);
+        ui.button("Forget spots", "Clears every known spot (they come back from the particles within a few seconds).", "Clear", false, MudwormTracker::clear);
+        ui.info("ESP resets", "Times the ESP was reset because the lobby or world changed.", () -> MudwormTracker.resets + "");
 
         ui.tab("Route", "R");
         ui.section("Patrol route");
@@ -613,7 +614,7 @@ public class MudwormMacro implements Feature {
 
         ui.tab("Display", "V");
         ui.section("Overlays");
-        ui.toggle("ESP", "Boxes on the spots (green = target, yellow = going there, grey = done), the path and your waypoints.", () -> esp, v -> esp = v);
+        ui.toggle("ESP", "Every spot found on the island is remembered (until it is broken, collected, or the lobby changes) and shown; boxes on the spots (green = target, yellow = going there, grey = done), the path and your waypoints.", () -> esp, v -> esp = v);
     }
 
     private static String clock(long ms) {
