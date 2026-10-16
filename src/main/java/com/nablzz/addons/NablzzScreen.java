@@ -416,6 +416,22 @@ public class NablzzScreen extends Screen {
         }
     }
 
+    private void layoutTab(Tab t) {
+        int y = 0;
+        for (Section s : t.sections) {
+            s.relY = y;
+            int ry = TITLE_H;
+            for (Row r : s.rows) {
+                r.prepare(vw - 8 - 20);
+                r.relY = ry;
+                ry += r.h;
+            }
+            s.h = ry + 6;
+            y += s.h + 10;
+        }
+        contentH = y;
+    }
+
     private void drawContent(GuiGraphicsExtractor g, int mx, int my) {
         Tab t = cur();
         layoutTab(t);
