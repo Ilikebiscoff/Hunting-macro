@@ -26,7 +26,7 @@ import java.util.function.Supplier;
  * pauses (the game does not), so close it to let the macro move.
  */
 public class NablzzScreen extends Screen {
-    private static final int SIDE = 112, HEADER = 38, PAD = 10, HINT_H = 16, ROW_H = 22, TITLE_H = 20;
+    private static final int SIDE = 138, HEADER = 38, PAD = 10, HINT_H = 16, ROW_H = 22, TITLE_H = 20;
 
     /** Set by any control that changed a setting; the file is written when the mouse is released / the screen closes. */
     private static boolean dirty;
@@ -35,6 +35,7 @@ public class NablzzScreen extends Screen {
     private final List<Module> modules = new ArrayList<>();
     private int module;
     private float tabY = -1;
+    private float sideScroll;
     private long lastFrame;
     private float scroll, scrollTarget, contentH;
     private Field focus;
@@ -118,6 +119,15 @@ public class NablzzScreen extends Screen {
             Prefs.accentIdx = i;
             Ui.setAccent(i);
         });
+
+        // ---- Report
+        ui.tab("Report", "R");
+        ui.section("Report for Claude");
+        ui.note("Collects what the macros did lately, the state and settings of every feature, the chat, your settings files and the filtered game log, "
+                + "copies it to the clipboard and saves it as config/nablzz_report.txt. Paste it in the chat when something does not work. "
+                + "Same as the command /nablzz report.");
+        ui.button("Copy report", "Builds the report and copies it.", "Copy", true, () -> Report.run(Minecraft.getInstance()));
+        ui.info("Last report", "When the last report was made.", () -> Report.last, Ui.MUTED);
 
         // ---- Updates
         ui.tab("Updates", "U");
@@ -323,25 +333,34 @@ public class NablzzScreen extends Screen {
         Ui.bold(g, "Nablzz", lx + 28, ly + 2, Ui.TEXT);
         Ui.text(g, "Addons", lx + 28, ly + 12, Ui.accent);
 
-        int ty = wy + 48;
-        int th = 24;
-        float target = ty + mod().tab * (th + 3);
+        // the feature list (scrolls when there are more features than room)
+        int ty = wy + 48, th = 24;
+        int listTop = ty, listBot = wy + wh - 34;
+        float maxScroll = Math.max(0, modules.size() * (th + 3) - (listBot - listTop));
+        sideScroll = Math.max(0, Math.min(maxScroll, sideScroll));
+        float target = ty + module * (th + 3) - sideScroll;
         if (tabY < 0) tabY = target;
-        tabY = Ui.approach(tabY, target, 700f);
-        // moving selection pill
+        tabY = Ui.approach(tabY, target, 900f);
+        g.enableScissor(wx + 1, listTop, wx + SIDE + 1, listBot);
         Ui.rr(g, wx + 8, (int) tabY, SIDE - 14, th, 5, Ui.mix(Ui.SIDEBAR, Ui.accent, 0.20f));
         Ui.rr(g, wx + 8, (int) tabY + 4, 2, th - 8, 1, Ui.accent);
-        for (int i = 0; i < mod().tabs.size(); i++) {
-            Tab t = mod().tabs.get(i);
-            int y = ty + i * (th + 3);
-            boolean hov = Ui.in(mx, my, wx + 8, y, SIDE - 14, th);
-            t.hov = Ui.approach(t.hov, hov ? 1f : 0f, 8f);
-            if (i != mod().tab && t.hov > 0) Ui.rr(g, wx + 8, y, SIDE - 14, th, 5, Ui.withAlpha(0xFFFFFF, (int) (10 * t.hov)));
-            boolean sel = i == mod().tab;
-            int ic = Ui.mix(0xFF1A1E27, Ui.accent, sel ? 0.9f : 0.15f + 0.2f * t.hov);
-            Ui.rr(g, wx + 16, y + 5, 14, 14, 4, ic);
-            Ui.textC(g, t.letter, wx + 23, y + 8, sel ? 0xFFFFFFFF : Ui.MUTED);
-            Ui.text(g, t.name, wx + 37, y + 8, sel ? Ui.TEXT : Ui.mix(Ui.MUTED, Ui.TEXT, t.hov));
+        for (int i = 0; i < modules.size(); i++) {
+            Module n = modules.get(i);
+            int y = (int) (ty + i * (th + 3) - sideScroll);
+            if (y + th < listTop || y > listBot) continue;
+            boolean hov = Ui.in(mx, my, wx + 8, y, SIDE - 14, th) && my >= listTop && my < listBot;
+            n.hov = Ui.approach(n.hov, hov ? 1f : 0f, 8f);
+            boolean sel = i == module;
+            if (!sel && n.hov > 0) Ui.rr(g, wx + 8, y, SIDE - 14, th, 5, Ui.withAlpha(0xFFFFFF, (int) (10 * n.hov)));
+            boolean on = n.running.getAsBoolean();
+            float pulse = on ? 0.65f + 0.35f * (float) Math.sin(System.currentTimeMillis() / 220.0) : 1f;
+            Ui.rr(g, wx + 17, y + 9, 6, 6, 3, Ui.mix(Ui.SIDEBAR, on ? Ui.GOOD : Ui.DIM, pulse));
+            Ui.text(g, Ui.fit(n.name, SIDE - 44), wx + 29, y + 8, sel ? Ui.TEXT : Ui.mix(Ui.MUTED, Ui.TEXT, n.hov));
+        }
+        g.disableScissor();
+        if (maxScroll > 0) { // a hint that there is more
+            if (sideScroll < maxScroll - 1) Ui.textC(g, "v", wx + SIDE / 2, listBot + 2, Ui.DIM);
+            if (sideScroll > 1) Ui.textC(g, "^", wx + SIDE / 2, listTop - 10, Ui.DIM);
         }
         Ui.text(g, Updater.shortVersion(), wx + 14, wy + wh - 24, Ui.DIM);
         Ui.text(g, "Right Shift: open/close", wx + 14, wy + wh - 13, Ui.DIM);
@@ -351,12 +370,8 @@ public class NablzzScreen extends Screen {
         return wx + ww - 22;
     }
 
-    private int startX() {
-        return closeX() - 8 - 70;
-    }
-
     private int navW(int i) {
-        return Ui.tw(modules.get(i).name) + 22;
+        return Ui.tw(mod().tabs.get(i).name) + 22;
     }
 
     private int navX(int i) {
@@ -365,69 +380,40 @@ public class NablzzScreen extends Screen {
         return x;
     }
 
+    /** Header: the tabs of the selected feature, the status of the macro and the close button. */
     private void drawHeader(GuiGraphicsExtractor g, int mx, int my) {
         Ui.fill(g, wx + SIDE + 1, wy + HEADER, ww - SIDE - 2, 1, Ui.LINE);
         Module md = mod();
         boolean run = md.running.getAsBoolean();
 
-        // module navigation
-        for (int i = 0; i < modules.size(); i++) {
+        for (int i = 0; i < md.tabs.size(); i++) {
+            Tab t = md.tabs.get(i);
             int nx = navX(i), nw = navW(i);
-            boolean sel = i == module, hov = Ui.in(mx, my, nx, wy + 8, nw, HEADER - 8);
-            Module n = modules.get(i);
-            n.hov = Ui.approach(n.hov, hov ? 1f : 0f, 8f);
+            boolean sel = i == md.tab, hov = Ui.in(mx, my, nx, wy + 8, nw, HEADER - 8);
+            t.hov = Ui.approach(t.hov, hov ? 1f : 0f, 8f);
             if (hov && !sel) Ui.rr(g, nx, wy + 8, nw, 22, 5, Ui.withAlpha(0xFFFFFF, 12));
             if (sel) {
                 Ui.rr(g, nx, wy + 8, nw, 22, 5, Ui.mix(Ui.WINDOW, Ui.accent, 0.16f));
                 Ui.rr(g, nx + 6, wy + HEADER - 3, nw - 12, 2, 1, Ui.accent);
             }
-            int dot = n.running.getAsBoolean() ? Ui.GOOD : Ui.DIM;
-            Ui.rr(g, nx + 7, wy + 17, 4, 4, 2, dot);
-            Ui.text(g, n.name, nx + 15, wy + 15, sel ? Ui.TEXT : Ui.mix(Ui.MUTED, Ui.TEXT, n.hov));
+            Ui.textC(g, t.name, nx + nw / 2, wy + 15, sel ? Ui.TEXT : Ui.mix(Ui.MUTED, Ui.TEXT, t.hov));
         }
 
-        // close
         int cx = closeX(), cy = wy + 10;
         boolean hc = Ui.in(mx, my, cx, cy, 14, 14);
         Ui.rr(g, cx, cy, 14, 14, 4, hc ? 0xFF3A2024 : Ui.CARD);
         Ui.textC(g, "x", cx + 7, cy + 3, hc ? Ui.BAD : Ui.MUTED);
-        int rightEdge = cx - 8;
-        // start / stop (not for the General module)
-        if (md.toggle != null) {
-            int bx = startX(), by = wy + 8;
-            boolean hb = Ui.in(mx, my, bx, by, 70, 18);
-            int base = run ? Ui.BAD : Ui.GOOD;
-            Ui.rr(g, bx, by, 70, 18, 5, hb ? Ui.mix(base, 0xFFFFFFFF, 0.15f) : Ui.mix(base, 0xFF000000, 0.35f));
-            Ui.rr(g, bx + 1, by + 1, 68, 8, 4, Ui.withAlpha(0xFFFFFF, 22));
-            Ui.textC(g, run ? "Stop" : "Start", bx + 35, by + 5, 0xFFFFFFFF);
-            rightEdge = bx - 8;
-        }
+
         // status pill (only when there is room)
         String st = md.status.get();
         int pw = Ui.tw(st) + 24;
-        int px = rightEdge - pw;
-        if (px > navX(modules.size()) + 4) {
+        int px = cx - 8 - pw;
+        if (px > navX(md.tabs.size()) + 4) {
             Ui.rr(g, px, wy + 10, pw, 14, 7, Ui.CARD);
             float pulse = run ? 0.65f + 0.35f * (float) Math.sin(System.currentTimeMillis() / 220.0) : 1f;
             Ui.rr(g, px + 7, wy + 14, 6, 6, 3, Ui.mix(Ui.CARD, run ? Ui.GOOD : Ui.BAD, pulse));
             Ui.text(g, st, px + 17, wy + 13, Ui.TEXT);
         }
-    }
-
-    private void layoutTab(Tab t) {
-        int y = 0;
-        for (Section s : t.sections) {
-            s.relY = y;
-            int ry = TITLE_H;
-            for (Row r : s.rows) {
-                r.prepare(vw - 8 - 20);
-                r.relY = ry;
-                ry += r.h;
-            }
-            s.h = ry + 6;
-            y += s.h + 10;
-        }
-        contentH = y;
     }
 
     private void drawContent(GuiGraphicsExtractor g, int mx, int my) {
@@ -495,24 +481,24 @@ public class NablzzScreen extends Screen {
             onClose();
             return true;
         }
-        if (mod().toggle != null && Ui.in(mx, my, startX(), wy + 8, 70, 18)) {
-            mod().toggle.run();
-            return true;
-        }
-        for (int i = 0; i < modules.size(); i++) {
-            if (Ui.in(mx, my, navX(i), wy + 8, navW(i), HEADER - 8)) {
-                blur();
-                if (module != i) {
-                    module = i;
-                    scroll = scrollTarget = 0;
-                    tabY = -1;
+        // the feature list in the sidebar
+        {
+            int listTop = wy + 48, listBot = wy + wh - 34;
+            for (int i = 0; i < modules.size(); i++) {
+                int y = (int) (wy + 48 + i * 27 - sideScroll);
+                if (my >= listTop && my < listBot && Ui.in(mx, my, wx + 8, y, SIDE - 14, 24)) {
+                    blur();
+                    if (module != i) {
+                        module = i;
+                        scroll = scrollTarget = 0;
+                    }
+                    return true;
                 }
-                return true;
             }
         }
-        int ty = wy + 48;
+        // the tabs of the selected feature in the header
         for (int i = 0; i < mod().tabs.size(); i++) {
-            if (Ui.in(mx, my, wx + 8, ty + i * 27, SIDE - 14, 24)) {
+            if (Ui.in(mx, my, navX(i), wy + 8, navW(i), HEADER - 8)) {
                 blur();
                 if (mod().tab != i) {
                     mod().tab = i;
@@ -555,6 +541,10 @@ public class NablzzScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mx, double my, double sx, double sy) {
+        if (mx < wx + SIDE) {
+            sideScroll -= (float) (sy * 24);
+            return true;
+        }
         scrollTarget -= (float) (sy * 30);
         return true;
     }

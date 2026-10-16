@@ -37,6 +37,10 @@ public interface Feature {
     /** Add the tabs of this feature to the settings screen. */
     void buildScreen(NablzzScreen.Builder ui);
 
+    /** Lines for the report (/nablzz report): the state and settings that explain what this feature is doing. */
+    default void report(java.util.function.Consumer<String> out) {
+    }
+
     /** Write the feature's settings to disk (called when the screen closes or a setting changed). */
     void saveSettings();
 }

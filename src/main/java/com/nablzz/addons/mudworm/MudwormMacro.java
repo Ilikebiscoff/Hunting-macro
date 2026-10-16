@@ -280,6 +280,32 @@ public class MudwormMacro implements Feature {
     }
 
     @Override
+    public void report(java.util.function.Consumer<String> out) {
+        long now = System.currentTimeMillis();
+        out.accept("stage: " + stage + ", round " + rounds + ", lobby swaps " + swaps + ", spots done " + spotsDone + ", teleports " + hops);
+        out.accept("goal: " + (goal == null ? "none" : goal.toShortString() + (goalIsSpot ? " (spot)" : " (waypoint " + waypoint + ")"))
+                + ", route waypoints " + (route == null ? 0 : route.size()) + ", reached " + reached + ", lap done " + lapDone);
+        out.accept("spots known: " + MudwormTracker.SPOTS.size() + ", lobby/world resets " + MudwormTracker.resets);
+        int n = 0;
+        StringBuilder sp = new StringBuilder();
+        for (BlockPos b : MudwormTracker.SPOTS.keySet()) {
+            if (n++ >= 12) break;
+            sp.append(b.toShortString()).append("; ");
+        }
+        if (n > 0) out.accept("first spots: " + sp);
+        out.accept("learned: " + LEARNED.summary());
+        out.accept("teleport state: step " + etherStep + ", fails in a row " + etherFails
+                + ", no-mana for " + Math.max(0, (noManaUntil - now) / 1000) + " s, paused for " + Math.max(0, (aotvOffUntil - now) / 1000)
+                + " s, route right-click paused for " + Math.max(0, (routeTp.offUntilMs() - now) / 1000) + " s");
+        out.accept("last teleport problem: " + lastEtherFail);
+        out.accept("settings: aotv " + useAotv + " \"" + aotvName + "\", shift-teleport beyond " + aotvMinDist + " blocks, range " + etherRange
+                + ", right-click route " + routeTp.enabled + " every " + routeTp.delayMs + " ms, sprint " + sprint
+                + ", action " + action + " with \"" + toolName + "\", soft route " + softRoute + " radius " + detourRadius
+                + ", no-spots action " + noSpotsAction + " after " + noSpotsSec + " s, grass only " + grassOnly + ", markers " + particleIds);
+        out.accept("profit: " + String.format(Locale.ROOT, "%.0f coins, %d items", MudwormProfit.coins(), MudwormProfit.items()));
+    }
+
+    @Override
     public void saveSettings() {
         save();
         applyMarkers();
@@ -775,7 +801,10 @@ public class MudwormMacro implements Feature {
         }
     }
 
+    private volatile String lastEtherFail = "none";
+
     private void etherFail(Minecraft mc, long now, String why) {
+        lastEtherFail = why;
         Notify.msg("Teleport failed: " + why);
         sneak(mc, false);
         etherStep = 0;

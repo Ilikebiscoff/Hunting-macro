@@ -31,6 +31,10 @@ final class RouteTeleport {
     private int blocked;
     private boolean clicked;
 
+    long offUntilMs() {
+        return offUntil;
+    }
+
     /** True once per right-click that was sent (for the teleport counter). */
     boolean takeClick() {
         boolean c = clicked;

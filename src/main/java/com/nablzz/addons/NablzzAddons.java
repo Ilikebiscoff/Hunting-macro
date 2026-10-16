@@ -41,6 +41,7 @@ public class NablzzAddons implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         Prefs.init();
+        Report.init();
         // Add new features here: they get their own module in the settings screen automatically.
         Features.register(new MinerZombieHunting());
         Features.register(new GlowingMushroomMod());
@@ -76,6 +77,10 @@ public class NablzzAddons implements ClientModInitializer {
                 Minecraft mc = Minecraft.getInstance();
                 Features.stopAll(mc);
                 Notify.msg("Everything stopped.");
+                return 1;
+            }));
+            root.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("report").executes(c -> {
+                Report.run(Minecraft.getInstance());
                 return 1;
             }));
             root.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("version").executes(c -> {

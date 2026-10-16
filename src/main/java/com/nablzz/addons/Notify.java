@@ -8,6 +8,7 @@ public final class Notify {
     private Notify() {}
 
     public static void msg(String s) {
+        Report.event("[Nablzz] " + s);
         var mc = Minecraft.getInstance();
         if (mc.player != null) mc.player.sendSystemMessage(Component.literal("§d[Nablzz] §f" + s));
     }
