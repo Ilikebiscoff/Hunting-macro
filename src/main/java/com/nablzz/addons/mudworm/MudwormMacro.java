@@ -458,8 +458,11 @@ public class MudwormMacro implements Feature {
             else {
                 releaseMovement(mc);
                 stage = "No path";
-                if (now - goalSince > 8000) { // nothing reachable: skip it for a while
+                float[] look = angles(p.getEyePosition(), c);
+                aim.setTarget(look[0], 8f, 520f, 1f); // keep facing the goal instead of freezing the camera
+                if (now - goalSince > 4000) { // nothing reachable: skip it for a while
                     visited.put(goal, now);
+                    if (!goalIsSpot) { waypoint++; reached++; } // a waypoint we cannot reach still counts as done
                     goal = null;
                 }
                 return;
@@ -470,7 +473,8 @@ public class MudwormMacro implements Feature {
                     && Math.abs(pts.get(idx).y - p.getY()) < 1.5) idx++;
             target = pts.get(Math.min(idx + 1, pts.size() - 1));
         }
-        float yaw = (float) (Math.atan2(target.z - p.getZ(), target.x - p.getX()) * 180.0 / Math.PI) - 90f;
+        float yaw = Math.hypot(target.x - p.getX(), target.z - p.getZ()) < 0.2 ? p.getYRot()
+                : (float) (Math.atan2(target.z - p.getZ(), target.x - p.getX()) * 180.0 / Math.PI) - 90f;
         aim.setTarget(yaw, 8f, 520f, 1f);
         float err = Math.abs(net.minecraft.util.Mth.wrapDegrees(yaw - p.getYRot()));
         mc.options.keyUp.setDown(err < 70f);
