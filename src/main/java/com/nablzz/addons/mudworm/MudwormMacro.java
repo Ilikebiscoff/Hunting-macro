@@ -62,6 +62,7 @@ public class MudwormMacro implements Feature {
     public volatile int etherRange = 57;
     public volatile int aotvMinDist = 14;
     public volatile boolean sprint = true;
+    public volatile boolean debug = false;
     /** 0 = right-click the block, 1 = right-click in the air, 2 = break the block. */
     public volatile int action = 0;
     /** Hotbar item for the action (part of its name); empty = whatever is in your hand. */
@@ -503,15 +504,16 @@ public class MudwormMacro implements Feature {
                     etherStep = 2;
                     etherAt = now;
                 } else if (now - etherAt > 2500) {
-                    etherFail(mc, now);
+                    etherFail(mc, now, onIt ? "the camera never settled on the block" : "the crosshair is not on the block (something in the way?)");
                 }
             }
             case 2 -> { // sneak is registered after a couple of ticks, then the click
                 sneak(mc, true);
                 if (now - etherAt > 1200) { // never crouched (key setting?): give up this teleport
-                    etherFail(mc, now);
+                    etherFail(mc, now, "the player never crouched (shift not registering)");
                 } else if (now - etherAt >= 130 && p.isShiftKeyDown()) {
                     etherFrom = p.position();
+                    if (debug) Notify.msg(String.format(Locale.ROOT, "Teleport: shift + right-click toward %d %d %d", etherBlock.getX(), etherBlock.getY(), etherBlock.getZ()));
                     mc.gameMode.useItem(p, InteractionHand.MAIN_HAND);
                     etherStep = 3;
                     etherAt = now;
@@ -528,13 +530,14 @@ public class MudwormMacro implements Feature {
                     lastPlan = 0;
                     idx = 0;
                 } else if (now - etherAt > 900) {
-                    etherFail(mc, now);
+                    etherFail(mc, now, "shift + right-click sent but you did not move (no Ether Transmission upgrade, or too far/blocked?)");
                 }
             }
         }
     }
 
-    private void etherFail(Minecraft mc, long now) {
+    private void etherFail(Minecraft mc, long now, String why) {
+        Notify.msg("Teleport failed: " + why);
         sneak(mc, false);
         etherStep = 0;
         nextEther = now + 1500;
@@ -665,6 +668,7 @@ public class MudwormMacro implements Feature {
         ui.text("Item name", "Part of the hotbar item name.", () -> aotvName, v -> aotvName = v, 150, "Aspect of the Void");
         ui.islider("Teleport range", "Farthest block to teleport onto (Ether Transmission reaches about 57).", 10, 70, () -> etherRange, v -> etherRange = v, " blocks");
         ui.islider("Walk when closer than", "Closer than this the macro walks instead of teleporting.", 5, 40, () -> aotvMinDist, v -> aotvMinDist = v, " blocks");
+        ui.toggle("Teleport messages", "Prints each shift + right-click and why a teleport failed, to find out what is wrong.", () -> debug, v -> debug = v);
         ui.section("Walking");
         ui.toggle("Sprint", "Sprint while walking along the path.", () -> sprint, v -> sprint = v);
 
