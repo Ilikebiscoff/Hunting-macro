@@ -18,7 +18,10 @@ import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.minecraft.resources.Identifier;
 import net.fabricmc.loader.api.FabricLoader;
+import com.mojang.blaze3d.platform.InputConstants;
+import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.minecraft.client.KeyMapping;
+import org.lwjgl.glfw.GLFW;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
@@ -158,6 +161,15 @@ public class MudwormMacro implements Feature {
     public void init() {
         route = new Route(FabricLoader.getInstance().getConfigDir().resolve("nablzz_mudworm_route.json"));
         load();
+        KeyMapping waypointKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.nablzzaddons.mudworm_waypoint",
+                InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_P, KeyMapping.Category.MISC));
+        ClientTickEvents.START_CLIENT_TICK.register(mc -> {
+            while (waypointKey.consumeClick()) {
+                if (mc.player == null || mc.screen != null) continue;
+                route.add(mc.player.getX(), mc.player.getY(), mc.player.getZ());
+                Notify.msg("Waypoint " + route.size() + " saved.");
+            }
+        });
         ClientTickEvents.START_CLIENT_TICK.register(this::tick);
         HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("nablzzaddons", "mudworm_profit"),
                 (graphics, delta) -> MudwormHud.render(graphics, delta, this));
@@ -869,7 +881,7 @@ public class MudwormMacro implements Feature {
         ui.islider("Teleport delay", "Time between route right-clicks.", 120, 800, () -> routeTp.delayMs, v -> routeTp.delayMs = v, " ms");
         ui.islider("Detour radius", "Spots farther than this from you are left for the route to reach.", 8, 100, () -> detourRadius, v -> detourRadius = v, " blocks");
         ui.info("Waypoints", "Recorded patrol points.", () -> route.size() + "");
-        ui.button("Add waypoint here", "Records the spot you are standing on.", "Add", true, () -> {
+        ui.button("Add waypoint here", "Records the spot you are standing on (or press the Set waypoint key, P by default, in Controls).", "Add", true, () -> {
             var p = Minecraft.getInstance().player;
             if (p != null) route.add(p.getX(), p.getY(), p.getZ());
         });
