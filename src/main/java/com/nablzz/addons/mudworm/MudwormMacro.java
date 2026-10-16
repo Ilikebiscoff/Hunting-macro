@@ -162,7 +162,7 @@ public class MudwormMacro implements Feature {
     public void init() {
         route = new Route(FabricLoader.getInstance().getConfigDir().resolve("nablzz_mudworm_route.json"));
         load();
-        LEARNED.load(FabricLoader.getInstance().getConfigDir().resolve("nablz_mudworm_learned.txt"));
+        LEARNED.load(FabricLoader.getInstance().getConfigDir().resolve("nablz_mudworm_learned2.txt"));
         KeyMapping waypointKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.nablzzaddons.mudworm_waypoint",
                 InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_P, KeyMapping.Category.MISC));
         ClientTickEvents.START_CLIENT_TICK.register(mc -> {
@@ -628,37 +628,39 @@ public class MudwormMacro implements Feature {
     }
 
     /**
-     * No planned path to hop along (a waypoint far away, or no path at all): pick a block you can see and land on
-     * that is as close to the goal as possible, scanning around the straight line toward it.
+     * Looks around: casts a fan of rays in every direction up to teleport range, and every block a ray ends on that
+     * can be landed on (solid, two free blocks above) is a candidate. Picks the one that gets us closest to the goal.
      */
     private BlockPos directLanding(Minecraft mc, LocalPlayer p, Vec3 eye, double minHop) {
         if (goal == null) return null;
         Vec3 to = goal.getCenter();
-        double total = eye.distanceTo(to);
-        if (total < 1.0) return null;
-        Vec3 dir = to.subtract(eye).normalize();
-        List<BlockPos> cands = new ArrayList<>();
+        double now = eye.distanceTo(to);
+        BlockPos best = null;
+        double bestScore = Double.MAX_VALUE;
         Set<BlockPos> seen = new HashSet<>();
-        for (double t = Math.min(etherRange, total + 3.0); t >= minHop; t -= 2.0) {
-            BlockPos c = BlockPos.containing(eye.add(dir.scale(t)));
-            for (int dx = -2; dx <= 2; dx++)
-                for (int dy = -5; dy <= 5; dy++)
-                    for (int dz = -2; dz <= 2; dz++) {
-                        BlockPos b = c.offset(dx, dy, dz);
-                        if (!seen.add(b)) continue;
-                        double d = eye.distanceTo(b.getCenter());
-                        if (d < minHop || d > etherRange || !landable(mc, b)) continue;
-                        cands.add(b);
-                    }
+        double reach = etherRange;
+        for (int pitch = -60; pitch <= 50; pitch += 5) {
+            double cp = Math.cos(Math.toRadians(pitch)), sp = -Math.sin(Math.toRadians(pitch));
+            int yawStep = Math.max(4, (int) Math.round(5.0 / Math.max(0.25, cp)));
+            for (int yaw = 0; yaw < 360; yaw += yawStep) {
+                double yr = Math.toRadians(yaw);
+                Vec3 dir = new Vec3(-Math.sin(yr) * cp, sp, Math.cos(yr) * cp);
+                BlockHitResult h = mc.level.clip(new ClipContext(eye, eye.add(dir.scale(reach)),
+                        ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, p));
+                if (h.getType() != HitResult.Type.BLOCK) continue;
+                BlockPos b = h.getBlockPos();
+                if (!seen.add(b) || !landable(mc, b)) continue;
+                Vec3 c = b.getCenter();
+                if (eye.distanceTo(c) < minHop) continue;
+                double score = c.distanceTo(to);
+                if (score > now - 3.0) continue; // must get us closer
+                if (score < bestScore) {
+                    bestScore = score;
+                    best = b;
+                }
+            }
         }
-        cands.sort((x, y) -> Double.compare(x.getCenter().distanceToSqr(to), y.getCenter().distanceToSqr(to)));
-        int tests = 0;
-        for (BlockPos b : cands) {
-            if (b.getCenter().distanceTo(to) > total - 3.0) break; // sorted: nothing further on makes progress
-            if (++tests > 40) break;
-            if (rayHit(mc, p, eye, b) != null) return b;
-        }
-        return null;
+        return best;
     }
 
     /** Starts a teleport sequence. False = no good teleport right now. */
@@ -696,8 +698,11 @@ public class MudwormMacro implements Feature {
                 float[] a = angles(p.getEyePosition(), aimPt);
                 aim.setTarget(a[0], a[1], 900f, 1.3f);
                 if (swapTicks > 0) swapTicks--;
-                boolean onIt = mc.hitResult instanceof BlockHitResult h && h.getType() == HitResult.Type.BLOCK
-                        && h.getBlockPos().equals(etherBlock);
+                // what the crosshair is on at teleport range (mc.hitResult only reaches the normal ~4.5 blocks)
+                Vec3 eyeNow = p.getEyePosition();
+                BlockHitResult looking = mc.level.clip(new ClipContext(eyeNow, eyeNow.add(p.getLookAngle().scale(etherRange + 2.0)),
+                        ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, p));
+                boolean onIt = looking.getType() == HitResult.Type.BLOCK && looking.getBlockPos().equals(etherBlock);
                 sneak(mc, true);
                 if (swapTicks == 0 && aim.settled(p, 2f) && onIt) {
                     etherStep = 2;
