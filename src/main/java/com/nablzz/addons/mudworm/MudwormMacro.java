@@ -14,7 +14,9 @@ import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallba
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
+import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
+import net.minecraft.resources.Identifier;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
@@ -63,10 +65,15 @@ public class MudwormMacro implements Feature {
     public volatile int aotvMinDist = 14;
     public volatile boolean sprint = true;
     public volatile boolean debug = false;
+    public volatile boolean hud = true;
+    /** 0 = nothing, 1 = swap lobby (/lobby, /skyblock, warp back) when no spot shows up for a while. */
+    public volatile int noSpotsAction = 1;
+    public volatile int noSpotsSec = 20;
+    public volatile String warpCommand = "warp galatea";
     /** 0 = right-click the block, 1 = right-click in the air, 2 = break the block. */
-    public volatile int action = 0;
+    public volatile int action = 2;
     /** Hotbar item for the action (part of its name); empty = whatever is in your hand. */
-    public volatile String toolName = "";
+    public volatile String toolName = "Aspect of the Void";
     public volatile int actDelayMs = 500;
     public volatile boolean grassOnly = true;
     public volatile String particleIds = "minecraft:happy_villager";
@@ -97,12 +104,33 @@ public class MudwormMacro implements Feature {
     private Vec3 etherFrom, etherAim;
     private int etherFails, swapTicks;
 
+    // lobby swap
+    private int lobbyStep;
+    private long lobbyAt, noSpotsSince, noManaUntil;
+    private volatile int swaps;
+
     // stats
     private volatile int spotsDone, hops, mudwormMsgs;
     private volatile String lastMsg = "-";
 
     private static Path file() {
         return FabricLoader.getInstance().getConfigDir().resolve("nablzz_mudworm.properties");
+    }
+
+    boolean hudOn() {
+        return hud;
+    }
+
+    long runMs() {
+        return runMs;
+    }
+
+    int spotsDone() {
+        return spotsDone;
+    }
+
+    String clock() {
+        return clock(runMs);
     }
 
     // ---- Feature ------------------------------------------------------------------------------------------
@@ -122,9 +150,13 @@ public class MudwormMacro implements Feature {
         route = new Route(FabricLoader.getInstance().getConfigDir().resolve("nablzz_mudworm_route.json"));
         load();
         ClientTickEvents.START_CLIENT_TICK.register(this::tick);
+        HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("nablzzaddons", "mudworm_profit"),
+                (graphics, delta) -> MudwormHud.render(graphics, delta, this));
         ClientReceiveMessageEvents.GAME.register((message, overlay) -> {
-            if (overlay) return;
             String s = message.getString();
+            if (s.toLowerCase(Locale.ROOT).contains("enough mana")) noManaUntil = System.currentTimeMillis() + 4000;
+            if (overlay) return;
+            if (running) MudwormProfit.onChat(s);
             if (s.contains("Mudworm")) {
                 mudwormMsgs++;
                 lastMsg = s.replaceAll("§.", "").trim();
@@ -186,6 +218,8 @@ public class MudwormMacro implements Feature {
         etherStep = 0;
         nextEther = 0;
         etherFails = 0;
+        lobbyStep = 0;
+        noSpotsSince = 0;
         visited.clear();
         avoid.clear();
         aim.reset();
@@ -199,6 +233,7 @@ public class MudwormMacro implements Feature {
     public void stop(Minecraft mc) {
         if (!running) return;
         running = false;
+        lobbyStep = 0;
         stage = "Stopped";
         releaseKeys(mc);
         Notify.msg("Mudworm macro stopped: " + spotsDone + " spots done, " + hops + " teleports.");
@@ -226,9 +261,14 @@ public class MudwormMacro implements Feature {
         long now = System.currentTimeMillis();
         if (running && lastTick != 0) runMs += Math.min(1000, now - lastTick);
         lastTick = now;
+        if (running || MudwormProfit.items() > 0) MudwormProfit.tickPrices(now);
         MudwormTracker.enabled = esp || running;
         if (MudwormTracker.enabled || MudwormTracker.scanning) MudwormTracker.tick(mc);
         if (!running) return;
+        if (lobbyStep != 0) { // swapping lobby: the player may be gone for a while
+            lobbyTick(mc, now);
+            return;
+        }
         LocalPlayer p = mc.player;
         if (p == null || mc.level == null || mc.screen != null) {
             releaseKeys(mc);
@@ -243,8 +283,23 @@ public class MudwormMacro implements Feature {
         }
 
         chooseGoal(p, now);
+        if (goal == null || !goalIsSpot) { // nothing to dig: after a while swap to a fresh lobby
+            if (MudwormTracker.SPOTS.isEmpty()) {
+                if (noSpotsSince == 0) noSpotsSince = now;
+                if (noSpotsAction == 1 && now - noSpotsSince > noSpotsSec * 1000L) {
+                    noSpotsSince = 0;
+                    startLobbySwap(mc, p, now);
+                    return;
+                }
+            } else {
+                noSpotsSince = 0;
+            }
+        } else {
+            noSpotsSince = 0;
+        }
         if (goal == null) {
-            stage = "Searching";
+            stage = "Searching (" + Math.max(0, noSpotsSec - (noSpotsSince == 0 ? 0 : (int) ((now - noSpotsSince) / 1000))) + " s to lobby swap)";
+            if (noSpotsAction != 1) stage = "Searching";
             releaseMovement(mc);
             return;
         }
@@ -404,7 +459,7 @@ public class MudwormMacro implements Feature {
     // ---- Aspect of the Void: shift + right-click --------------------------------------------------------------
 
     private boolean aotvReady(Minecraft mc, LocalPlayer p, long now) {
-        return useAotv && now >= nextEther && now >= aotvOffUntil && findSlot(p, aotvName) >= 0;
+        return useAotv && now >= noManaUntil && now >= nextEther && now >= aotvOffUntil && findSlot(p, aotvName) >= 0;
     }
 
     /** How far above our feet the goal (or the next stretch of the path) is: > 1 means we cannot just walk. */
@@ -548,6 +603,49 @@ public class MudwormMacro implements Feature {
         }
     }
 
+    // ---- lobby swap: /lobby, /skyblock, warp back ----------------------------------------------------------------
+
+    private void startLobbySwap(Minecraft mc, LocalPlayer p, long now) {
+        releaseKeys(mc);
+        goal = null;
+        leg = null;
+        swaps++;
+        Notify.msg("No mudworm spots for " + noSpotsSec + " s - swapping lobby.");
+        p.connection.sendCommand("lobby");
+        lobbyStep = 1;
+        lobbyAt = now;
+        stage = "Swapping lobby";
+    }
+
+    private void lobbyTick(Minecraft mc, long now) {
+        stage = "Swapping lobby";
+        if (mc.player == null || mc.player.connection == null) return;
+        switch (lobbyStep) {
+            case 1 -> {
+                if (now - lobbyAt > 6000) {
+                    mc.player.connection.sendCommand("skyblock");
+                    lobbyStep = 2;
+                    lobbyAt = now;
+                }
+            }
+            case 2 -> {
+                if (now - lobbyAt > 14_000) {
+                    if (!warpCommand.isBlank()) mc.player.connection.sendCommand(warpCommand.trim());
+                    lobbyStep = 3;
+                    lobbyAt = now;
+                }
+            }
+            default -> {
+                if (now - lobbyAt > 9000) {
+                    lobbyStep = 0;
+                    visited.clear();
+                    MudwormTracker.reset();
+                    stage = "Searching";
+                }
+            }
+        }
+    }
+
     // ---- helpers ------------------------------------------------------------------------------------------
 
     /** Points on a block to try looking at: top face first, then the sides and the bottom. */
@@ -645,16 +743,17 @@ public class MudwormMacro implements Feature {
                 : "Press Start, close this screen, and go to the spots.", "Galatea mudworm spots");
         ui.tiles(() -> new String[][]{
                 {"" + spotsDone, "Spots done"},
-                {"" + MudwormTracker.SPOTS.size(), "Spots known"},
+                {MudwormProfit.fmt(MudwormProfit.coins()), "Profit (coins)"},
+                {MudwormProfit.fmt(runMs < 20_000 ? 0 : MudwormProfit.coins() / (runMs / 3_600_000.0)), "Coins / hour"},
                 {"" + hops, "Teleports"},
-                {"" + mudwormMsgs, "Mudworm chat lines"},
+                {"" + MudwormTracker.SPOTS.size(), "Spots known"},
                 {clock(runMs), "Run time"},
-                {String.format(Locale.ROOT, "%.0f", runMs < 20_000 ? 0 : spotsDone / (runMs / 3_600_000.0)), "Spots / hour"},
         });
         ui.section("Last mudworm message");
         ui.info("Chat", "The last chat line that mentioned a Mudworm.", () -> lastMsg);
         ui.button("Reset statistics", "Sets the counters and the clock back to zero.", "Reset", false, () -> {
             spotsDone = 0;
+            MudwormProfit.reset();
             hops = 0;
             mudwormMsgs = 0;
             lastMsg = "-";
@@ -674,10 +773,15 @@ public class MudwormMacro implements Feature {
 
         ui.tab("Action", "A");
         ui.section("On a spot");
-        ui.choice("What to do", "What happens when you are next to a spot.", new String[]{"Right-click the block", "Right-click the air", "Break the block"},
+        ui.choice("What to do", "What happens when you are next to a spot.", new String[]{"Right-click the block", "Right-click the air", "Left-click the spot"},
                 () -> action, i -> action = i);
         ui.text("Tool", "Part of the hotbar item name to hold for it. Empty = whatever is in your hand.", () -> toolName, v -> toolName = v, 150, "current item");
         ui.islider("Delay after", "Pause after each spot (ms).", 100, 3000, () -> actDelayMs, v -> actDelayMs = v, " ms");
+        ui.section("No spots in sight");
+        ui.choice("When nothing shows up", "What to do when no spot is known for a while.", new String[]{"Nothing", "Swap lobby"}, () -> noSpotsAction, i -> noSpotsAction = i);
+        ui.islider("Wait before that", "Seconds without any spot before the lobby swap.", 5, 180, () -> noSpotsSec, v -> noSpotsSec = v, " s");
+        ui.text("Warp command", "Run after /lobby and /skyblock to get back to the island (without the slash).", () -> warpCommand, v -> warpCommand = v, 150, "warp galatea");
+        ui.info("Lobby swaps", "How many times the macro swapped lobby this session.", () -> swaps + "");
         ui.section("Finding spots");
         ui.toggle("Only grass blocks", "Only count a spot when the block under the sparkles is a grass block (the mudworm spots are). Turn off to see every sparkle.",
                 () -> grassOnly, v -> {
@@ -703,6 +807,7 @@ public class MudwormMacro implements Feature {
 
         ui.tab("Display", "V");
         ui.section("Overlays");
+        ui.toggle("Profit panel", "Top right: time, spots, profit, coins per hour and the best drops.", () -> hud, v -> hud = v);
         ui.toggle("ESP", "Every spot found on the island is remembered (until it is broken, collected, or the lobby changes) and shown; boxes on the spots (green = target, yellow = going there, grey = done), the path and your waypoints.", () -> esp, v -> esp = v);
     }
 
@@ -728,8 +833,12 @@ public class MudwormMacro implements Feature {
             etherRange = Integer.parseInt(p.getProperty("etherRange", "" + etherRange).trim());
             aotvMinDist = Integer.parseInt(p.getProperty("aotvMinDist", "" + aotvMinDist).trim());
             sprint = Boolean.parseBoolean(p.getProperty("sprint", "" + sprint));
-            action = Math.max(0, Math.min(2, Integer.parseInt(p.getProperty("action", "" + action).trim())));
-            toolName = p.getProperty("toolName", toolName);
+            action = Math.max(0, Math.min(2, Integer.parseInt(p.getProperty("action2", "" + action).trim())));
+            toolName = p.getProperty("toolName2", toolName);
+            hud = Boolean.parseBoolean(p.getProperty("hud", "" + hud));
+            noSpotsAction = Math.max(0, Math.min(1, Integer.parseInt(p.getProperty("noSpotsAction", "" + noSpotsAction).trim())));
+            noSpotsSec = Integer.parseInt(p.getProperty("noSpotsSec", "" + noSpotsSec).trim());
+            warpCommand = p.getProperty("warpCommand", warpCommand);
             actDelayMs = Integer.parseInt(p.getProperty("actDelayMs", "" + actDelayMs).trim());
             particleIds = p.getProperty("particleIds", particleIds);
             grassOnly = Boolean.parseBoolean(p.getProperty("grassOnly", "" + grassOnly));
@@ -747,8 +856,12 @@ public class MudwormMacro implements Feature {
         p.setProperty("etherRange", "" + etherRange);
         p.setProperty("aotvMinDist", "" + aotvMinDist);
         p.setProperty("sprint", "" + sprint);
-        p.setProperty("action", "" + action);
-        p.setProperty("toolName", toolName);
+        p.setProperty("action2", "" + action);
+        p.setProperty("toolName2", toolName);
+        p.setProperty("hud", "" + hud);
+        p.setProperty("noSpotsAction", "" + noSpotsAction);
+        p.setProperty("noSpotsSec", "" + noSpotsSec);
+        p.setProperty("warpCommand", warpCommand);
         p.setProperty("actDelayMs", "" + actDelayMs);
         p.setProperty("particleIds", particleIds);
         p.setProperty("grassOnly", "" + grassOnly);

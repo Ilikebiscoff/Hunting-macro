@@ -23,7 +23,7 @@ public final class Config {
     /** Status panel on the screen. */
     public static volatile boolean hud = true;
     /** 0 top left, 1 top right, 2 bottom left, 3 bottom right. */
-    public static volatile int hudCorner = 1;
+    public static volatile int hudCorner = 2;
 
     private static Properties defaults;
 
