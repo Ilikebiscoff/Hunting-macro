@@ -10,14 +10,13 @@ import net.minecraft.world.phys.Vec3;
 
 /**
  * Follows a route waypoint by teleporting: face it and spam the plain Aspect of the Void right-click
- * (Instant Transmission, no shift). Going up is left to the shift-etherwarp of the macro.
+ * (Instant Transmission, no shift) for the last stretch (a few blocks up to the shift-etherwarp distance).
+ * Longer hops and going up are the shift-etherwarp of the macro.
  */
 final class RouteTeleport {
     enum Result {
         /** Not usable right now: walk to the waypoint instead. */
         WALK,
-        /** The waypoint is well above us: the macro should etherwarp up. */
-        UP,
         /** Facing the waypoint / clicking: the macro should hold still this tick. */
         TELEPORT
     }
@@ -40,8 +39,7 @@ final class RouteTeleport {
     Result step(Minecraft mc, LocalPlayer p, long now, HumanAim aim, BlockPos goal, double hd) {
         if (!enabled || now < offUntil) return Result.WALK;
         double dy = goal.getY() + 1.0 - p.getY();
-        if (dy > 3.0) return Result.UP;
-        if (hd < 10.0 && Math.abs(dy) < 4.0) return Result.WALK; // close: a teleport would overshoot, walk the rest
+        if (hd < 5.0 && Math.abs(dy) < 4.0) return Result.WALK; // close: a teleport would overshoot, walk the rest
 
         Vec3 eye = p.getEyePosition();
         Vec3 to = goal.getCenter();
