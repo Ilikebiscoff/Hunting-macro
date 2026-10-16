@@ -380,7 +380,7 @@ public class MudwormMacro implements Feature {
         mc.options.keyUp.setDown(err < 70f);
         mc.options.keySprint.setDown(sprint && err < 25f);
         mc.options.keyJump.setDown(p.onGround() && (p.horizontalCollision || target.y > p.getY() + 0.6));
-        mc.options.keyShift.setDown(false);
+        if (etherStep == 0) sneak(mc, false);
 
         // stuck: not 2 blocks further in 5 s
         if (stuckFrom == null || p.position().distanceTo(stuckFrom) > 2.0) {
@@ -481,6 +481,7 @@ public class MudwormMacro implements Feature {
         swapTicks = 4;
         stage = up ? "Teleporting up" : "Teleporting";
         releaseMovement(mc);
+        sneak(mc, true); // shift is held through the whole teleport
         int slot = findSlot(p, aotvName);
         if (p.getInventory().getSelectedSlot() != slot) p.getInventory().setSelectedSlot(slot);
         return true;
@@ -495,8 +496,8 @@ public class MudwormMacro implements Feature {
                 if (swapTicks > 0) swapTicks--;
                 boolean onIt = mc.hitResult instanceof BlockHitResult h && h.getType() == HitResult.Type.BLOCK
                         && h.getBlockPos().equals(etherBlock);
+                sneak(mc, true);
                 if (swapTicks == 0 && aim.settled(p, 2f) && onIt) {
-                    mc.options.keyShift.setDown(true);
                     etherStep = 2;
                     etherAt = now;
                 } else if (now - etherAt > 2500) {
@@ -504,7 +505,10 @@ public class MudwormMacro implements Feature {
                 }
             }
             case 2 -> { // sneak is registered after a couple of ticks, then the click
-                if (now - etherAt >= 130) {
+                sneak(mc, true);
+                if (now - etherAt > 1200) { // never crouched (key setting?): give up this teleport
+                    etherFail(mc, now);
+                } else if (now - etherAt >= 130 && p.isShiftKeyDown()) {
                     etherFrom = p.position();
                     mc.gameMode.useItem(p, InteractionHand.MAIN_HAND);
                     etherStep = 3;
@@ -515,7 +519,7 @@ public class MudwormMacro implements Feature {
                 if (p.position().distanceTo(etherFrom) > 3.0) {
                     hops++;
                     etherFails = 0;
-                    mc.options.keyShift.setDown(false);
+                    sneak(mc, false);
                     etherStep = 0;
                     nextEther = now + 350;
                     leg = null; // re-plan from the new spot
@@ -529,7 +533,7 @@ public class MudwormMacro implements Feature {
     }
 
     private void etherFail(Minecraft mc, long now) {
-        mc.options.keyShift.setDown(false);
+        sneak(mc, false);
         etherStep = 0;
         nextEther = now + 1500;
         if (++etherFails >= 3) {
@@ -581,6 +585,16 @@ public class MudwormMacro implements Feature {
         return -1;
     }
 
+    /**
+     * Sneak on/off. A plain key is just set; with "toggle sneak" on, the key flips its state each time it is pressed,
+     * so press it only when the state is not what we want.
+     */
+    private static void sneak(Minecraft mc, boolean want) {
+        KeyMapping k = mc.options.keyShift;
+        k.setDown(want);
+        if (k.isDown() != want) k.setDown(true); // toggle mode: a press flips it
+    }
+
     private void releaseMovement(Minecraft mc) {
         for (KeyMapping k : new KeyMapping[]{mc.options.keyUp, mc.options.keySprint, mc.options.keyJump,
                 mc.options.keyDown, mc.options.keyLeft, mc.options.keyRight}) k.setDown(false);
@@ -588,7 +602,7 @@ public class MudwormMacro implements Feature {
 
     private void releaseKeys(Minecraft mc) {
         releaseMovement(mc);
-        mc.options.keyShift.setDown(false);
+        sneak(mc, false);
         mc.options.keyAttack.setDown(false);
         etherStep = 0;
     }
