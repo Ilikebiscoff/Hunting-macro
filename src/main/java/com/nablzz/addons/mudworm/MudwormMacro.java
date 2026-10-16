@@ -92,7 +92,7 @@ public class MudwormMacro implements Feature {
     private int etherStep;
     private BlockPos etherBlock;
     private long etherAt, nextEther, aotvOffUntil;
-    private Vec3 etherFrom;
+    private Vec3 etherFrom, etherAim;
     private int etherFails, swapTicks;
 
     // stats
@@ -250,8 +250,9 @@ public class MudwormMacro implements Feature {
         Vec3 top = topOf(goal);
         double hd = Math.hypot(top.x - p.getX(), top.z - p.getZ());
 
-        if (goalIsSpot && eye.distanceTo(top) <= ACT_REACH && visible(mc, p, eye, goal)) {
-            act(mc, p, now, top);
+        BlockHitResult face = goalIsSpot ? rayHit(mc, p, eye, goal) : null; // any face we can see
+        if (face != null && eye.distanceTo(face.getLocation()) <= ACT_REACH) {
+            act(mc, p, now, face);
             return;
         }
         if (!goalIsSpot && hd < 2.5) { // reached a patrol waypoint
@@ -259,7 +260,8 @@ public class MudwormMacro implements Feature {
             goal = null;
             return;
         }
-        if (aotvReady(mc, p, now) && Math.hypot(top.x - p.getX(), top.z - p.getZ()) > aotvMinDist && tryEther(mc, p, now, eye)) return;
+        boolean up = rise(p) > 1.0; // more than one block higher than we stand (a tree, a ledge): teleport up
+        if (aotvReady(mc, p, now) && (hd > aotvMinDist || up) && tryEther(mc, p, now, eye, up)) return;
 
         walk(mc, p, now);
     }
@@ -309,9 +311,10 @@ public class MudwormMacro implements Feature {
 
     // ---- the action on a spot -----------------------------------------------------------------------------
 
-    private void act(Minecraft mc, LocalPlayer p, long now, Vec3 top) {
+    private void act(Minecraft mc, LocalPlayer p, long now, BlockHitResult face) {
         stage = "Digging";
         releaseMovement(mc);
+        Vec3 top = face.getLocation();
         float[] a = angles(p.getEyePosition(), top);
         aim.setTarget(a[0], a[1], 700f, 1.2f);
         if (now < nextAction || !aim.settled(p, 2.5f)) return;
@@ -326,10 +329,10 @@ public class MudwormMacro implements Feature {
         switch (action) {
             case 1 -> mc.gameMode.useItem(p, InteractionHand.MAIN_HAND);
             case 2 -> {
-                mc.gameMode.startDestroyBlock(goal, Direction.UP);
+                mc.gameMode.startDestroyBlock(goal, face.getDirection());
                 mc.options.keyAttack.setDown(true);
             }
-            default -> mc.gameMode.useItemOn(p, InteractionHand.MAIN_HAND, new BlockHitResult(top, Direction.UP, goal, false));
+            default -> mc.gameMode.useItemOn(p, InteractionHand.MAIN_HAND, new BlockHitResult(top, face.getDirection(), goal, false));
         }
         p.swing(InteractionHand.MAIN_HAND);
         spotsDone++;
@@ -401,29 +404,82 @@ public class MudwormMacro implements Feature {
         return useAotv && now >= nextEther && now >= aotvOffUntil && findSlot(p, aotvName) >= 0;
     }
 
-    /** Picks a block to teleport onto and starts the sequence. False = no good teleport right now. */
-    private boolean tryEther(Minecraft mc, LocalPlayer p, long now, Vec3 eye) {
-        BlockPos pick = null;
-        if (goalIsSpot && inRange(eye, goal) && visible(mc, p, eye, goal)) {
-            pick = goal; // straight onto the spot
-        } else if (leg != null) {
+    /** How far above our feet the goal (or the next stretch of the path) is: > 1 means we cannot just walk. */
+    private double rise(LocalPlayer p) {
+        double r = goal == null ? 0 : goal.getY() + 1.0 - p.getY();
+        if (!goalIsSpot) r = 0;
+        if (leg != null) {
             List<Vec3> pts = leg.path();
-            for (int i = pts.size() - 1; i > idx && pick == null; i--) {
+            for (int i = idx; i < Math.min(pts.size(), idx + 8); i++) r = Math.max(r, pts.get(i).y - p.getY());
+        }
+        return r;
+    }
+
+    /** A block you can land on: solid, with two free blocks above it. */
+    private static boolean landable(Minecraft mc, BlockPos b) {
+        var lv = mc.level;
+        return !lv.getBlockState(b).getCollisionShape(lv, b).isEmpty()
+                && lv.getBlockState(b.above()).getCollisionShape(lv, b.above()).isEmpty()
+                && lv.getBlockState(b.above(2)).getCollisionShape(lv, b.above(2)).isEmpty()
+                && lv.getFluidState(b.above()).isEmpty();
+    }
+
+    /**
+     * Smart pick: the block next to (or at) the spot that we can see, can land on, and from which the spot is within
+     * reach, closest to the spot. Falls back to the farthest landable path point in sight.
+     */
+    private BlockPos smartLanding(Minecraft mc, LocalPlayer p, Vec3 eye, boolean up) {
+        BlockPos best = null;
+        double bd = Double.MAX_VALUE;
+        if (goalIsSpot) {
+            Vec3 spotTop = topOf(goal);
+            for (int dx = -3; dx <= 3; dx++)
+                for (int dy = -3; dy <= 3; dy++)
+                    for (int dz = -3; dz <= 3; dz++) {
+                        BlockPos b = goal.offset(dx, dy, dz);
+                        if (!landable(mc, b)) continue;
+                        double d = eye.distanceTo(b.getCenter());
+                        if (d > etherRange || d < 2.0) continue;
+                        Vec3 stand = new Vec3(b.getX() + 0.5, b.getY() + 1.0 + 1.62, b.getZ() + 0.5);
+                        double toSpot = stand.distanceTo(spotTop);
+                        if (toSpot > ACT_REACH - 0.3 && !b.equals(goal)) continue; // must be able to dig from there
+                        if (rayHit(mc, p, eye, b) == null) continue;
+                        if (toSpot < bd) {
+                            bd = toSpot;
+                            best = b;
+                        }
+                    }
+            if (best != null) return best;
+        }
+        if (leg != null) {
+            List<Vec3> pts = leg.path();
+            double minHop = up ? 3.0 : aotvMinDist;
+            for (int i = pts.size() - 1; i > idx; i--) {
                 Vec3 v = pts.get(i);
                 BlockPos floor = BlockPos.containing(v.x, v.y - 0.5, v.z);
                 double d = eye.distanceTo(floor.getCenter());
-                if (d >= aotvMinDist && d <= etherRange && visible(mc, p, eye, floor)) pick = floor;
+                if (d < minHop || d > etherRange || !landable(mc, floor)) continue;
+                if (up && v.y < p.getY() + 1.0) continue; // going up: the hop must actually gain height
+                if (rayHit(mc, p, eye, floor) != null) return floor;
             }
         }
+        return null;
+    }
+
+    /** Starts a teleport sequence. False = no good teleport right now. */
+    private boolean tryEther(Minecraft mc, LocalPlayer p, long now, Vec3 eye, boolean up) {
+        BlockPos pick = smartLanding(mc, p, eye, up);
         if (pick == null) {
-            nextEther = now + 1500;
+            nextEther = now + 1200;
             return false;
         }
+        BlockHitResult h = rayHit(mc, p, eye, pick);
         etherBlock = pick;
+        etherAim = h != null ? h.getLocation() : new Vec3(pick.getX() + 0.5, pick.getY() + 0.9, pick.getZ() + 0.5);
         etherStep = 1;
         etherAt = now;
         swapTicks = 4;
-        stage = "Teleporting";
+        stage = up ? "Teleporting up" : "Teleporting";
         releaseMovement(mc);
         int slot = findSlot(p, aotvName);
         if (p.getInventory().getSelectedSlot() != slot) p.getInventory().setSelectedSlot(slot);
@@ -431,7 +487,7 @@ public class MudwormMacro implements Feature {
     }
 
     private void etherTick(Minecraft mc, LocalPlayer p, long now) {
-        Vec3 aimPt = new Vec3(etherBlock.getX() + 0.5, etherBlock.getY() + 0.9, etherBlock.getZ() + 0.5);
+        Vec3 aimPt = etherAim;
         switch (etherStep) {
             case 1 -> { // look at the block
                 float[] a = angles(p.getEyePosition(), aimPt);
@@ -485,16 +541,23 @@ public class MudwormMacro implements Feature {
 
     // ---- helpers ------------------------------------------------------------------------------------------
 
-    private boolean inRange(Vec3 eye, BlockPos b) {
-        double d = eye.distanceTo(b.getCenter());
-        return d >= aotvMinDist && d <= etherRange;
+    /** Points on a block to try looking at: top face first, then the sides and the bottom. */
+    private static Vec3[] facePoints(BlockPos b) {
+        double x = b.getX(), y = b.getY(), z = b.getZ();
+        return new Vec3[]{
+                new Vec3(x + 0.5, y + 0.95, z + 0.5), new Vec3(x + 0.25, y + 0.95, z + 0.25), new Vec3(x + 0.75, y + 0.95, z + 0.75),
+                new Vec3(x + 0.5, y + 0.5, z + 0.05), new Vec3(x + 0.5, y + 0.5, z + 0.95),
+                new Vec3(x + 0.05, y + 0.5, z + 0.5), new Vec3(x + 0.95, y + 0.5, z + 0.5),
+                new Vec3(x + 0.5, y + 0.05, z + 0.5)};
     }
 
-    /** True when a ray from the eyes to the top of the block hits that block first. */
-    private static boolean visible(Minecraft mc, LocalPlayer p, Vec3 eye, BlockPos b) {
-        Vec3 to = new Vec3(b.getX() + 0.5, b.getY() + 0.9, b.getZ() + 0.5);
-        BlockHitResult h = mc.level.clip(new ClipContext(eye, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, p));
-        return h.getType() == HitResult.Type.BLOCK && h.getBlockPos().equals(b);
+    /** The first point of the block that a ray from the eyes reaches without hitting something else, or null. */
+    private static BlockHitResult rayHit(Minecraft mc, LocalPlayer p, Vec3 eye, BlockPos b) {
+        for (Vec3 to : facePoints(b)) {
+            BlockHitResult h = mc.level.clip(new ClipContext(eye, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, p));
+            if (h.getType() == HitResult.Type.BLOCK && h.getBlockPos().equals(b)) return h;
+        }
+        return null;
     }
 
     private static Vec3 topOf(BlockPos b) {
