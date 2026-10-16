@@ -65,7 +65,7 @@ public class MudwormMacro implements Feature {
     public volatile boolean useAotv = true;
     public volatile String aotvName = "Aspect of the Void";
     public volatile int etherRange = 57;
-    public volatile int aotvMinDist = 9;
+    public volatile int aotvMinDist = 40;
     public volatile boolean sprint = true;
     public volatile boolean debug = false;
     public volatile boolean hud = true;
@@ -353,18 +353,15 @@ public class MudwormMacro implements Feature {
             act(mc, p, now, face);
             return;
         }
-        boolean tpOn = useAotv && routeTp.enabled && findSlot(p, aotvName) >= 0;
-        if (!goalIsSpot && hd < (tpOn ? 4.5 : 2.5) && Math.abs(goal.getY() + 1.0 - p.getY()) < 6.0) { // reached a patrol waypoint
+        if (!goalIsSpot && hd < 2.5 && Math.abs(goal.getY() + 1.0 - p.getY()) < 6.0) { // reached a patrol waypoint
             waypoint++;
             reached++;
             goal = null;
             return;
         }
-        // more than one block higher than we stand (a tree, a ledge, a waypoint up there): teleport up
-        boolean up = rise(p) > 1.0 || (!goalIsSpot && goal.getY() + 1.0 - p.getY() > 3.0);
-        // farther than ~9 blocks: shift + right-click; closer: plain right-click; very close: walk
-        if (aotvReady(mc, p, now) && (hd > aotvMinDist || up) && tryEther(mc, p, now, eye, up)) return;
-        if (routeTp(mc, p, now, eye, hd)) return;
+        // walking is the default; shift + right-click only for long hops. When there is no way on foot (a tree, a ledge,
+        // a gap), walk() teleports over by itself.
+        if (aotvReady(mc, p, now) && hd > aotvMinDist && tryEther(mc, p, now, eye, false)) return;
 
         walk(mc, p, now);
     }
@@ -468,8 +465,17 @@ public class MudwormMacro implements Feature {
         if (plan != null && !plan.legs().isEmpty()) {
             leg = plan.legs().get(0);
             idx = 0;
+            double bd = Double.MAX_VALUE; // start at the path point nearest to us, not at the beginning (we moved meanwhile)
+            List<Vec3> np = leg.path();
+            for (int i = 0; i < np.size(); i++) {
+                double d = np.get(i).distanceToSqr(p.position());
+                if (d < bd) {
+                    bd = d;
+                    idx = i;
+                }
+            }
         }
-        if ((leg == null && now - lastPlan > 500) || now - lastPlan > 2500) {
+        if ((leg == null && now - lastPlan > 500) || now - lastPlan > 6000) {
             if (planner.request(cache.grid(), p.blockPosition(), List.of(goal), Set.of(), learnedAvoid())) lastPlan = now;
         }
         Vec3 target;
@@ -484,7 +490,10 @@ public class MudwormMacro implements Feature {
                     aim.setTarget(look[0], 8f, 520f, 1f);
                     return;
                 }
-                if (aotvReady(mc, p, now) && tryEther(mc, p, now, p.getEyePosition(), true)) return; // no way on foot: teleport over
+                if (now - goalSince > 1500) { // no way on foot: teleport over
+                    if (aotvReady(mc, p, now) && tryEther(mc, p, now, p.getEyePosition(), true)) return;
+                    if (routeTp(mc, p, now, p.getEyePosition(), Math.hypot(goal.getX() + 0.5 - p.getX(), goal.getZ() + 0.5 - p.getZ()))) return;
+                }
                 stage = "No path";
                 float[] look = angles(p.getEyePosition(), c);
                 aim.setTarget(look[0], 8f, 520f, 1f); // keep facing the goal instead of freezing the camera
@@ -497,28 +506,14 @@ public class MudwormMacro implements Feature {
             }
         } else {
             List<Vec3> pts = leg.path();
-            while (idx < pts.size() - 1 && Math.hypot(pts.get(idx).x - p.getX(), pts.get(idx).z - p.getZ()) < 0.9
-                    && Math.abs(pts.get(idx).y - p.getY()) < 1.5) idx++;
+            while (idx < pts.size() - 1) {
+                double d0 = Math.hypot(pts.get(idx).x - p.getX(), pts.get(idx).z - p.getZ());
+                double d1 = Math.hypot(pts.get(idx + 1).x - p.getX(), pts.get(idx + 1).z - p.getZ());
+                boolean flat = Math.abs(pts.get(idx).y - p.getY()) < 1.5;
+                if ((d0 < 0.9 && flat) || (d1 < d0 && d1 < 2.5 && Math.abs(pts.get(idx + 1).y - p.getY()) < 1.5)) idx++;
+                else break;
+            }
             target = pts.get(Math.min(idx + 1, pts.size() - 1));
-            // look ahead: aim at the farthest point of the next few that is a clear straight walk (smoother, fewer zig-zags)
-            if (cache.grid() != null) {
-                for (int j = Math.min(pts.size() - 1, idx + 6); j > idx + 1; j--) {
-                    Vec3 q = pts.get(j);
-                    if (Math.hypot(q.x - p.getX(), q.z - p.getZ()) > 7.0) continue;
-                    if (Planner.walkable(cache.grid(), p.position(), q)) {
-                        target = q;
-                        break;
-                    }
-                }
-            }
-            // knocked off the path (lag, knockback, a teleport): plan again right away
-            Vec3 cur = pts.get(Math.min(idx, pts.size() - 1));
-            if (Math.hypot(cur.x - p.getX(), cur.z - p.getZ()) > 3.5 || Math.abs(cur.y - p.getY()) > 2.5) {
-                leg = null;
-                lastPlan = 0;
-                idx = 0;
-                return;
-            }
         }
         float yaw = Math.hypot(target.x - p.getX(), target.z - p.getZ()) < 0.2 ? p.getYRot()
                 : (float) (Math.atan2(target.z - p.getZ(), target.x - p.getX()) * 180.0 / Math.PI) - 90f;
@@ -922,7 +917,7 @@ public class MudwormMacro implements Feature {
                 () -> useAotv, v -> useAotv = v);
         ui.text("Item name", "Part of the hotbar item name.", () -> aotvName, v -> aotvName = v, 150, "Aspect of the Void");
         ui.islider("Teleport range", "Farthest block to teleport onto (Ether Transmission reaches about 57).", 10, 70, () -> etherRange, v -> etherRange = v, " blocks");
-        ui.islider("Shift-teleport farther than", "Farther than this: shift + right-click (etherwarp). Closer (down to a few blocks): plain right-click. Then it walks.", 5, 40, () -> aotvMinDist, v -> aotvMinDist = v, " blocks");
+        ui.islider("Shift-teleport farther than", "The macro walks by default. Only for hops farther than this it shift + right-click teleports; it also teleports when there is no way on foot.", 10, 100, () -> aotvMinDist, v -> aotvMinDist = v, " blocks");
         ui.toggle("Teleport messages", "Prints each shift + right-click and why a teleport failed, to find out what is wrong.", () -> debug, v -> debug = v);
         ui.section("Walking");
         ui.toggle("Sprint", "Sprint while walking along the path.", () -> sprint, v -> sprint = v);
@@ -1000,7 +995,7 @@ public class MudwormMacro implements Feature {
             useAotv = Boolean.parseBoolean(p.getProperty("useAotv", "" + useAotv));
             aotvName = p.getProperty("aotvName", aotvName);
             etherRange = Integer.parseInt(p.getProperty("etherRange", "" + etherRange).trim());
-            aotvMinDist = Integer.parseInt(p.getProperty("aotvMinDist2", "" + aotvMinDist).trim());
+            aotvMinDist = Integer.parseInt(p.getProperty("aotvMinDist3", "" + aotvMinDist).trim());
             sprint = Boolean.parseBoolean(p.getProperty("sprint", "" + sprint));
             action = Math.max(0, Math.min(2, Integer.parseInt(p.getProperty("action2", "" + action).trim())));
             toolName = p.getProperty("toolName2", toolName);
@@ -1028,7 +1023,7 @@ public class MudwormMacro implements Feature {
         p.setProperty("useAotv", "" + useAotv);
         p.setProperty("aotvName", aotvName);
         p.setProperty("etherRange", "" + etherRange);
-        p.setProperty("aotvMinDist2", "" + aotvMinDist);
+        p.setProperty("aotvMinDist3", "" + aotvMinDist);
         p.setProperty("sprint", "" + sprint);
         p.setProperty("action2", "" + action);
         p.setProperty("toolName2", toolName);

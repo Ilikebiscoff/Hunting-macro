@@ -24,6 +24,7 @@ final class Learned {
     private static final int CAP = 3000;
 
     private final Set<BlockPos> avoid = new LinkedHashSet<>();
+    private final Set<BlockPos> strike = new LinkedHashSet<>();
     private final Set<BlockPos> landing = new LinkedHashSet<>();
     private final Set<String> tp = new LinkedHashSet<>();
     private Path file;
@@ -52,8 +53,12 @@ final class Learned {
         return new HashSet<>(avoid);
     }
 
+    /** A cell is only avoided for good once it got us stuck twice (one stuck can be lag). */
     synchronized void addAvoid(BlockPos b) {
-        if (add(avoid, b)) dirty = true;
+        if (!strike.add(b)) {
+            if (add(avoid, b)) dirty = true;
+        }
+        trim(strike);
     }
 
     synchronized boolean badLanding(BlockPos b) {
