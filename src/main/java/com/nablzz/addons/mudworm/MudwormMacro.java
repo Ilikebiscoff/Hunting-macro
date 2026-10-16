@@ -70,6 +70,7 @@ public class MudwormMacro implements Feature {
     public volatile int noSpotsAction = 1;
     public volatile int noSpotsSec = 20;
     public volatile String warpCommand = "warp galatea";
+    public volatile String hubCommand = "hub";
     /** 0 = right-click the block, 1 = right-click in the air, 2 = break the block. */
     public volatile int action = 2;
     /** Hotbar item for the action (part of its name); empty = whatever is in your hand. */
@@ -88,7 +89,10 @@ public class MudwormMacro implements Feature {
     private final HumanAim aim = new HumanAim();
     private Route route;
     private int waypoint;
-    private boolean afterSpot;
+    private boolean afterSpot, lapDone;
+    private int reached, seenResets, resetsAtWarp;
+    private long roundStart;
+    private volatile int rounds;
     private long runMs, lastTick;
     private String stage = "Stopped";
 
@@ -224,6 +228,8 @@ public class MudwormMacro implements Feature {
         etherFails = 0;
         lobbyStep = 0;
         noSpotsSince = 0;
+        seenResets = MudwormTracker.resets;
+        newRound(System.currentTimeMillis());
         visited.clear();
         avoid.clear();
         aim.reset();
@@ -231,6 +237,20 @@ public class MudwormMacro implements Feature {
         stage = "Searching";
         Notify.msg("Mudworm macro started" + (useAotv && findSlot(mc.player, aotvName) < 0
                 ? " (no \"" + aotvName + "\" in the hotbar: walking only)." : "."));
+    }
+
+    /** A fresh lobby (or a new start): forget what was done, start the route again from the closest waypoint. */
+    private void newRound(long now) {
+        visited.clear();
+        avoid.clear();
+        goal = null;
+        leg = null;
+        reached = 0;
+        lapDone = false;
+        afterSpot = true; // pick the closest waypoint first
+        roundStart = now;
+        noSpotsSince = 0;
+        rounds++;
     }
 
     @Override
@@ -273,6 +293,11 @@ public class MudwormMacro implements Feature {
             lobbyTick(mc, now);
             return;
         }
+        if (MudwormTracker.resets != seenResets) { // joined a new lobby / world: do the route again
+            seenResets = MudwormTracker.resets;
+            newRound(now);
+            Notify.msg("New lobby: starting the route again.");
+        }
         LocalPlayer p = mc.player;
         if (p == null || mc.level == null || mc.screen != null) {
             releaseKeys(mc);
@@ -287,23 +312,17 @@ public class MudwormMacro implements Feature {
         }
 
         chooseGoal(p, now);
-        if (goal == null || !goalIsSpot) { // nothing to dig: after a while swap to a fresh lobby
-            if (MudwormTracker.SPOTS.isEmpty()) {
-                if (noSpotsSince == 0) noSpotsSince = now;
-                if (noSpotsAction == 1 && now - noSpotsSince > noSpotsSec * 1000L) {
-                    noSpotsSince = 0;
-                    startLobbySwap(mc, p, now);
-                    return;
-                }
-            } else {
-                noSpotsSince = 0;
+        boolean hasRoute = route != null && route.size() > 0;
+        if (hasRoute && reached >= route.size()) lapDone = true;
+        // round over: the route has been walked once and no spot is left -> /hub, /warp galatea, again
+        if (goal == null && noSpotsAction == 1 && now - roundStart > 8000) {
+            if (hasRoute ? lapDone : MudwormTracker.SPOTS.isEmpty() && now - roundStart > noSpotsSec * 1000L) {
+                startLobbySwap(mc, p, now);
+                return;
             }
-        } else {
-            noSpotsSince = 0;
         }
         if (goal == null) {
-            stage = "Searching (" + Math.max(0, noSpotsSec - (noSpotsSince == 0 ? 0 : (int) ((now - noSpotsSince) / 1000))) + " s to lobby swap)";
-            if (noSpotsAction != 1) stage = "Searching";
+            stage = lapDone ? "Round done" : "Searching";
             releaseMovement(mc);
             return;
         }
@@ -319,6 +338,7 @@ public class MudwormMacro implements Feature {
         }
         if (!goalIsSpot && hd < 2.5) { // reached a patrol waypoint
             waypoint++;
+            reached++;
             goal = null;
             return;
         }
@@ -349,7 +369,7 @@ public class MudwormMacro implements Feature {
             goalIsSpot = true;
             return;
         }
-        if (route != null && route.size() > 0) {
+        if (route != null && route.size() > 0 && !lapDone) {
             if (afterSpot) { // back from a detour: continue from the closest waypoint
                 afterSpot = false;
                 double bd = Double.MAX_VALUE;
@@ -371,7 +391,7 @@ public class MudwormMacro implements Feature {
     private BlockPos nearestSpot(LocalPlayer p) {
         BlockPos best = null;
         double bd = Double.MAX_VALUE;
-        boolean soft = softRoute && route != null && route.size() > 0;
+        boolean soft = softRoute && route != null && route.size() > 0 && !lapDone;
         for (BlockPos s : MudwormTracker.SPOTS.keySet()) {
             if (visited.containsKey(s)) continue;
             double d = s.getCenter().distanceToSqr(p.position());
@@ -628,8 +648,8 @@ public class MudwormMacro implements Feature {
         goal = null;
         leg = null;
         swaps++;
-        Notify.msg("No mudworm spots for " + noSpotsSec + " s - swapping lobby.");
-        p.connection.sendCommand("lobby");
+        Notify.msg("Round done (" + spotsDone + " spots so far) - /" + hubCommand + ", then /" + warpCommand + ".");
+        if (!hubCommand.isBlank()) p.connection.sendCommand(hubCommand.trim());
         lobbyStep = 1;
         lobbyAt = now;
         stage = "Swapping lobby";
@@ -639,25 +659,20 @@ public class MudwormMacro implements Feature {
         stage = "Swapping lobby";
         if (mc.player == null || mc.player.connection == null) return;
         switch (lobbyStep) {
-            case 1 -> {
+            case 1 -> { // in the hub now: warp back
                 if (now - lobbyAt > 6000) {
-                    mc.player.connection.sendCommand("skyblock");
+                    resetsAtWarp = MudwormTracker.resets;
+                    if (!warpCommand.isBlank()) mc.player.connection.sendCommand(warpCommand.trim());
                     lobbyStep = 2;
                     lobbyAt = now;
                 }
             }
-            case 2 -> {
-                if (now - lobbyAt > 14_000) {
-                    if (!warpCommand.isBlank()) mc.player.connection.sendCommand(warpCommand.trim());
-                    lobbyStep = 3;
-                    lobbyAt = now;
-                }
-            }
-            default -> {
-                if (now - lobbyAt > 9000) {
+            default -> { // wait until the island world has loaded (the ESP reset marks it)
+                boolean arrived = MudwormTracker.resets != resetsAtWarp && now - lobbyAt > 3000;
+                if (arrived || now - lobbyAt > 25_000) {
                     lobbyStep = 0;
-                    visited.clear();
-                    MudwormTracker.reset();
+                    seenResets = MudwormTracker.resets;
+                    newRound(now);
                     stage = "Searching";
                 }
             }
@@ -799,11 +814,12 @@ public class MudwormMacro implements Feature {
                 () -> action, i -> action = i);
         ui.text("Tool", "Part of the hotbar item name to hold for it. Empty = whatever is in your hand.", () -> toolName, v -> toolName = v, 150, "current item");
         ui.islider("Delay after", "Pause after each spot (ms).", 100, 3000, () -> actDelayMs, v -> actDelayMs = v, " ms");
-        ui.section("No spots in sight");
-        ui.choice("When nothing shows up", "What to do when no spot is known for a while.", new String[]{"Nothing", "Swap lobby"}, () -> noSpotsAction, i -> noSpotsAction = i);
-        ui.islider("Wait before that", "Seconds without any spot before the lobby swap.", 5, 180, () -> noSpotsSec, v -> noSpotsSec = v, " s");
-        ui.text("Warp command", "Run after /lobby and /skyblock to get back to the island (without the slash).", () -> warpCommand, v -> warpCommand = v, 150, "warp galatea");
-        ui.info("Lobby swaps", "How many times the macro swapped lobby this session.", () -> swaps + "");
+        ui.section("When the round is done");
+        ui.choice("After a round", "When the route has been walked once and no spot is left: go to the hub and warp back for a new lobby, then repeat.", new String[]{"Stop at the end", "Hub + warp, repeat"}, () -> noSpotsAction, i -> noSpotsAction = i);
+        ui.text("Hub command", "First command of the swap (without the slash).", () -> hubCommand, v -> hubCommand = v, 150, "hub");
+        ui.text("Warp command", "Second command, to get back to the island (without the slash).", () -> warpCommand, v -> warpCommand = v, 150, "warp galatea");
+        ui.islider("No route: wait", "Without a recorded route a round ends after this many seconds with no spot known.", 5, 180, () -> noSpotsSec, v -> noSpotsSec = v, " s");
+        ui.info("Rounds / swaps", "Rounds started (each new lobby) and hub swaps this session.", () -> rounds + " / " + swaps);
         ui.section("Finding spots");
         ui.toggle("Only grass blocks", "Only count a spot when the block under the sparkles is a grass block (the mudworm spots are). Turn off to see every sparkle.",
                 () -> grassOnly, v -> {
@@ -828,6 +844,12 @@ public class MudwormMacro implements Feature {
         });
         ui.button("Remove last waypoint", "Undo the last recorded point.", "Undo", false, route::removeLast);
         ui.confirmButton("Clear route", "Deletes every waypoint.", "Clear", route::clear);
+        ui.confirmButton("Load the video's route", "Replaces the route with the points read from the video (approximate and unverified: check them with the ESP and fix them by recording your own).", "Load", () -> {
+            route.clear();
+            double[][] pts = {{369, 75, 49}, {375, 78, 62}, {393, 116, 23}, {410, 151, -12}, {393, 147, -25}, {394, 150, -42},
+                    {383, 131, -55}, {394, 129, -15}, {390, 119, -4}, {382, 110, 17}, {362, 75, 46}};
+            for (double[] q : pts) route.add(q[0], q[1], q[2]);
+        });
 
         ui.tab("Display", "V");
         ui.section("Overlays");
@@ -863,6 +885,7 @@ public class MudwormMacro implements Feature {
             noSpotsAction = Math.max(0, Math.min(1, Integer.parseInt(p.getProperty("noSpotsAction", "" + noSpotsAction).trim())));
             noSpotsSec = Integer.parseInt(p.getProperty("noSpotsSec", "" + noSpotsSec).trim());
             warpCommand = p.getProperty("warpCommand", warpCommand);
+            hubCommand = p.getProperty("hubCommand", hubCommand);
             actDelayMs = Integer.parseInt(p.getProperty("actDelayMs", "" + actDelayMs).trim());
             particleIds = p.getProperty("particleIds", particleIds);
             grassOnly = Boolean.parseBoolean(p.getProperty("grassOnly", "" + grassOnly));
@@ -888,6 +911,7 @@ public class MudwormMacro implements Feature {
         p.setProperty("noSpotsAction", "" + noSpotsAction);
         p.setProperty("noSpotsSec", "" + noSpotsSec);
         p.setProperty("warpCommand", warpCommand);
+        p.setProperty("hubCommand", hubCommand);
         p.setProperty("actDelayMs", "" + actDelayMs);
         p.setProperty("particleIds", particleIds);
         p.setProperty("grassOnly", "" + grassOnly);
