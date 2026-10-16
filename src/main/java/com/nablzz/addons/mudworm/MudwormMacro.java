@@ -65,9 +65,9 @@ public class MudwormMacro implements Feature {
     public volatile boolean useAotv = true;
     public volatile String aotvName = "Aspect of the Void";
     public volatile int etherRange = 57;
-    public volatile int aotvMinDist = 40;
+    public volatile int aotvMinDist = 20;
     public volatile boolean sprint = true;
-    public volatile boolean debug = false;
+    public volatile boolean debug = true;
     public volatile boolean hud = true;
     /** 0 = nothing, 1 = swap lobby (/lobby, /skyblock, warp back) when no spot shows up for a while. */
     public volatile int noSpotsAction = 1;
@@ -361,7 +361,14 @@ public class MudwormMacro implements Feature {
         }
         // walking is the default; shift + right-click only for long hops. When there is no way on foot (a tree, a ledge,
         // a gap), walk() teleports over by itself.
-        if (aotvReady(mc, p, now) && hd > aotvMinDist && tryEther(mc, p, now, eye, false)) return;
+        boolean detour = leg != null && hd > 12.0 && pathLength(leg) > 1.8 * hd; // the way on foot is much longer than the straight line
+        if (hd > aotvMinDist || detour) {
+            if (!aotvReady(mc, p, now)) {
+                tpMsg(now, "wants to teleport (" + (int) hd + " blocks away) but: " + whyNotReady(p, now));
+            } else if (tryEther(mc, p, now, eye, false)) {
+                return;
+            }
+        }
 
         walk(mc, p, now);
     }
@@ -546,6 +553,30 @@ public class MudwormMacro implements Feature {
 
     // ---- Aspect of the Void: shift + right-click --------------------------------------------------------------
 
+    private long lastTpMsg;
+
+    /** A line in chat about why no teleport happens, at most every 5 s. */
+    private void tpMsg(long now, String text) {
+        if (now - lastTpMsg < 5000) return;
+        lastTpMsg = now;
+        Notify.msg("Teleport: " + text);
+    }
+
+    private String whyNotReady(LocalPlayer p, long now) {
+        if (!useAotv) return "\"Use the Aspect of the Void\" is off in the settings.";
+        if (findSlot(p, aotvName) < 0) return "no item named \"" + aotvName + "\" in the hotbar.";
+        if (now < noManaUntil) return "not enough mana.";
+        if (now < aotvOffUntil) return "paused for " + (aotvOffUntil - now) / 1000 + " s after repeated failures.";
+        return "cooldown after the last teleport.";
+    }
+
+    private static double pathLength(Planner.Leg leg) {
+        double sum = 0;
+        List<Vec3> pts = leg.path();
+        for (int i = 1; i < pts.size(); i++) sum += pts.get(i).distanceTo(pts.get(i - 1));
+        return sum;
+    }
+
     private boolean aotvReady(Minecraft mc, LocalPlayer p, long now) {
         return useAotv && now >= noManaUntil && now >= nextEther && now >= aotvOffUntil && findSlot(p, aotvName) >= 0;
     }
@@ -667,6 +698,7 @@ public class MudwormMacro implements Feature {
     private boolean tryEther(Minecraft mc, LocalPlayer p, long now, Vec3 eye, boolean up) {
         BlockPos pick = smartLanding(mc, p, eye, up);
         if (pick == null) {
+            tpMsg(now, "no block to teleport to that gets closer to the goal (looked in every direction, range " + etherRange + ").");
             nextEther = now + 1200;
             return false;
         }
@@ -680,6 +712,7 @@ public class MudwormMacro implements Feature {
             BlockHitResult h = rayHit(mc, p, eye, pick);
             etherAim = h != null ? h.getLocation() : mid;
         }
+        if (debug) Notify.msg(String.format(Locale.ROOT, "Teleport: aiming at the block %d %d %d (%.0f blocks away)", pick.getX(), pick.getY(), pick.getZ(), eye.distanceTo(pick.getCenter())));
         etherStep = 1;
         etherAt = now;
         swapTicks = 4;
@@ -922,7 +955,7 @@ public class MudwormMacro implements Feature {
                 () -> useAotv, v -> useAotv = v);
         ui.text("Item name", "Part of the hotbar item name.", () -> aotvName, v -> aotvName = v, 150, "Aspect of the Void");
         ui.islider("Teleport range", "Farthest block to teleport onto (Ether Transmission reaches about 57).", 10, 70, () -> etherRange, v -> etherRange = v, " blocks");
-        ui.islider("Shift-teleport farther than", "The macro walks by default. Only for hops farther than this it shift + right-click teleports; it also teleports when there is no way on foot.", 10, 100, () -> aotvMinDist, v -> aotvMinDist = v, " blocks");
+        ui.islider("Shift-teleport farther than", "The macro walks by default. It shift + right-click teleports for hops farther than this, when the walk is much longer than the straight line, and when there is no way on foot.", 10, 100, () -> aotvMinDist, v -> aotvMinDist = v, " blocks");
         ui.toggle("Teleport messages", "Prints each shift + right-click and why a teleport failed, to find out what is wrong.", () -> debug, v -> debug = v);
         ui.section("Walking");
         ui.toggle("Sprint", "Sprint while walking along the path.", () -> sprint, v -> sprint = v);
@@ -1000,7 +1033,7 @@ public class MudwormMacro implements Feature {
             useAotv = Boolean.parseBoolean(p.getProperty("useAotv", "" + useAotv));
             aotvName = p.getProperty("aotvName", aotvName);
             etherRange = Integer.parseInt(p.getProperty("etherRange", "" + etherRange).trim());
-            aotvMinDist = Integer.parseInt(p.getProperty("aotvMinDist3", "" + aotvMinDist).trim());
+            aotvMinDist = Integer.parseInt(p.getProperty("aotvMinDist4", "" + aotvMinDist).trim());
             sprint = Boolean.parseBoolean(p.getProperty("sprint", "" + sprint));
             action = Math.max(0, Math.min(2, Integer.parseInt(p.getProperty("action2", "" + action).trim())));
             toolName = p.getProperty("toolName2", toolName);
@@ -1028,7 +1061,7 @@ public class MudwormMacro implements Feature {
         p.setProperty("useAotv", "" + useAotv);
         p.setProperty("aotvName", aotvName);
         p.setProperty("etherRange", "" + etherRange);
-        p.setProperty("aotvMinDist3", "" + aotvMinDist);
+        p.setProperty("aotvMinDist4", "" + aotvMinDist);
         p.setProperty("sprint", "" + sprint);
         p.setProperty("action2", "" + action);
         p.setProperty("toolName2", toolName);
