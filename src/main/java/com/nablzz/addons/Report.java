@@ -138,10 +138,15 @@ public final class Report {
             for (Path f : files.sorted(Comparator.comparing(Path::toString)).toList()) {
                 String n = f.getFileName().toString().toLowerCase(Locale.ROOT);
                 if (!(n.startsWith("nablz") || n.startsWith("huntingmacro") || n.startsWith("glowingmushroom"))) continue;
-                if (n.equals("nablz_report.txt")) continue;
-                line(sb, "--- " + f.getFileName() + " ---");
+                if (n.equals("nablz_report.txt") || n.contains("pathmemory") || n.endsWith("_spots.json")) continue; // big, not useful
                 String body = Files.readString(f, StandardCharsets.UTF_8);
-                if (body.length() > 5000) body = body.substring(0, 5000) + "\n... (cut)";
+                if (n.endsWith(".json")) { // squeeze the JSON files (routes) onto few lines
+                    body = body.replaceAll("\\s+", "").replaceAll("(-?\\d+\\.\\d)\\d+", "$1");
+                    line(sb, "--- " + f.getFileName() + " (compact) ---");
+                } else {
+                    line(sb, "--- " + f.getFileName() + " ---");
+                }
+                if (body.length() > 3000) body = body.substring(0, 3000) + "\n... (cut)";
                 for (String l : body.split("\n")) if (!l.startsWith("#")) line(sb, l);
             }
         } catch (IOException | RuntimeException e) {
