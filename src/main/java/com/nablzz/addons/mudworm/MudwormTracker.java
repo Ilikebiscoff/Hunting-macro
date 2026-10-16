@@ -26,6 +26,8 @@ public final class MudwormTracker {
 
     /** Registry ids that mark a spot (the green "+" sparkles are the happy villager particle). */
     public static volatile Set<String> markers = Set.of("minecraft:happy_villager");
+    /** Only count a spot when the block under the particle is a grass block. */
+    public static volatile boolean grassOnly = true;
     /** Only collect while the ESP or the macro is on. */
     public static volatile boolean enabled;
     /** While true every particle id is counted, so the right marker can be found (/mudworm scan). */
@@ -76,6 +78,7 @@ public final class MudwormTracker {
             if (!markers.contains(name)) continue;
             BlockPos ground = ground(level, p.getX(), p.getY(), p.getZ());
             if (ground == null) continue;
+            if (grassOnly && !level.getBlockState(ground).is(net.minecraft.world.level.block.Blocks.GRASS_BLOCK)) continue;
             // the same spot sends particles over a few neighbouring cells: keep one entry per ~2 blocks
             BlockPos same = ground;
             for (BlockPos o : SPOTS.keySet()) {

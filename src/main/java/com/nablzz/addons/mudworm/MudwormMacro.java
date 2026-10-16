@@ -67,6 +67,7 @@ public class MudwormMacro implements Feature {
     /** Hotbar item for the action (part of its name); empty = whatever is in your hand. */
     public volatile String toolName = "";
     public volatile int actDelayMs = 500;
+    public volatile boolean grassOnly = true;
     public volatile String particleIds = "minecraft:happy_villager";
 
     // ---- state ----
@@ -209,6 +210,7 @@ public class MudwormMacro implements Feature {
     }
 
     private void applyMarkers() {
+        MudwormTracker.grassOnly = grassOnly;
         Set<String> set = new HashSet<>();
         for (String id : particleIds.split("[\\s,]+")) {
             if (id.isBlank()) continue;
@@ -673,6 +675,12 @@ public class MudwormMacro implements Feature {
         ui.text("Tool", "Part of the hotbar item name to hold for it. Empty = whatever is in your hand.", () -> toolName, v -> toolName = v, 150, "current item");
         ui.islider("Delay after", "Pause after each spot (ms).", 100, 3000, () -> actDelayMs, v -> actDelayMs = v, " ms");
         ui.section("Finding spots");
+        ui.toggle("Only grass blocks", "Only count a spot when the block under the sparkles is a grass block (the mudworm spots are). Turn off to see every sparkle.",
+                () -> grassOnly, v -> {
+                    grassOnly = v;
+                    MudwormTracker.grassOnly = v;
+                    MudwormTracker.clear();
+                });
         ui.text("Marker particles", "Particle ids that mark a spot, comma separated. Run /mudworm scan next to one to list what is around.",
                 () -> particleIds, v -> particleIds = v, 190, "minecraft:happy_villager");
         ui.button("Forget spots", "Clears every known spot (they come back from the particles within a few seconds).", "Clear", false, MudwormTracker::clear);
@@ -720,6 +728,7 @@ public class MudwormMacro implements Feature {
             toolName = p.getProperty("toolName", toolName);
             actDelayMs = Integer.parseInt(p.getProperty("actDelayMs", "" + actDelayMs).trim());
             particleIds = p.getProperty("particleIds", particleIds);
+            grassOnly = Boolean.parseBoolean(p.getProperty("grassOnly", "" + grassOnly));
         } catch (Exception ignored) {
             // keep defaults
         }
@@ -738,6 +747,7 @@ public class MudwormMacro implements Feature {
         p.setProperty("toolName", toolName);
         p.setProperty("actDelayMs", "" + actDelayMs);
         p.setProperty("particleIds", particleIds);
+        p.setProperty("grassOnly", "" + grassOnly);
         try (OutputStream out = Files.newOutputStream(file())) {
             p.store(out, "Nablzz Addons: mudworm macro");
         } catch (IOException ignored) {
