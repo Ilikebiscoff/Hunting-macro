@@ -5,6 +5,8 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.Mth;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
@@ -25,7 +27,7 @@ final class Walker {
     private String blockedWhy = "";
     private Vec3 stuckFrom;
     private long stuckAt;
-    private long jumpedAt, idxSince;
+    private long jumpedAt, idxSince, wallSince;
     private int idxSeen = -1;
 
     boolean hasPath() {
@@ -184,26 +186,34 @@ final class Walker {
                 if (!sprint && dist < 2.1 && ground) jump = true;
             }
             default -> {
-                // walking (or stepping down): look at the cells right ahead, never walk into a wall
+                // walking (or stepping down): feel for a wall right ahead with real collision rays (feet and head height)
+                boolean wallNow = false;
                 if (dist > 0.35 && err < 40f) {
                     double hx = dx / dist, hz = dz / dist;
-                    int ax = Mth.floor(px + hx * 0.8), az = Mth.floor(pz + hz * 0.8);
-                    int cy = Mth.floor(p.getY() + 0.05);
-                    boolean intoTarget = ax == t.x() && az == t.z();
-                    if (wall(w, ax, cy, az) && !(intoTarget && cy < t.y())) {
-                        // a solid block ahead that the path does not climb: is it a block we can simply hop onto?
-                        boolean hop = (w.flags(ax, cy, az) & Nav4.TALLX) == 0 && passable(w, ax, cy + 1, az) && passable(w, ax, cy + 2, az)
+                    double reach = Math.min(0.6, dist);
+                    Vec3 dir = new Vec3(hx, 0, hz);
+                    Vec3 f0 = new Vec3(px, p.getY() + 0.3, pz), f1 = new Vec3(px, p.getY() + 1.55, pz);
+                    boolean lo = mc.level.clip(new ClipContext(f0, f0.add(dir.scale(reach)), ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, p)).getType() == HitResult.Type.BLOCK;
+                    boolean hi = mc.level.clip(new ClipContext(f1, f1.add(dir.scale(reach)), ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, p)).getType() == HitResult.Type.BLOCK;
+                    if (lo || hi) {
+                        int ax = Mth.floor(px + hx * 0.8), az = Mth.floor(pz + hz * 0.8), cy = Mth.floor(p.getY() + 0.05);
+                        // a single block we can hop onto (room above it and above our head)?
+                        boolean hop = lo && !hi && passable(w, ax, cy + 1, az) && passable(w, ax, cy + 2, az)
                                 && passable(w, Mth.floor(px), cy + 2, Mth.floor(pz));
-                        if (hop && (w.flags(ax, cy + 1, az) & Nav4.SOLID) == 0 && ground(w, ax, cy, az)) {
+                        if (hop) {
                             jump = ground;
                         } else {
-                            return block(ax, cy, az, "wall ahead");
+                            wallNow = true;
+                            forward = false;
+                            if (wallSince == 0) wallSince = now;
+                            if (now - wallSince > 900) { // it really is a wall (not a skimmed corner): plan around it
+                                wallSince = 0;
+                                return block(ax, cy, az, "wall ahead");
+                            }
                         }
-                    } else if (ground && p.horizontalCollision && now - jumpedAt > 700
-                            && passable(w, Mth.floor(px), cy + 2, Mth.floor(pz))) {
-                        jump = true; // bumped into something low that the world data didn't show: hop (only with room above)
                     }
                 }
+                if (!wallNow) wallSince = 0;
             }
         }
         if (jump) jumpedAt = now;
