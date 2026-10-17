@@ -119,7 +119,8 @@ public class MudwormMacro implements Feature {
     // path finder v4 (see Nav4): the running search, the teleport it asked for, and the wall bookkeeping
     private Nav4.Search nav;
     private BlockPos navGoal, pendingEther;
-    private long pendingSince, navNoEtherUntil, lastWallReplan;
+    private long pendingSince, navNoEtherUntil, lastWallReplan, navFailAt;
+    private BlockPos navFailGoal;
     private int wallStrikes;
 
     // lobby swap
@@ -515,13 +516,14 @@ public class MudwormMacro implements Feature {
             }
             return;
         }
-        if (nav == null && ((leg == null && now - lastPlan > 400) || now - lastPlan > 6000)) startPlan(mc, p, now);
+        boolean failedRecently = goal.equals(navFailGoal) && now - navFailAt < 2500;
+        if (nav == null && !failedRecently && ((leg == null && now - lastPlan > 400) || now - lastPlan > 6000)) startPlan(mc, p, now);
         Vec3 target;
         if (leg == null || leg.path().isEmpty()) {
             Vec3 c = goal.getCenter();
             {
                 releaseMovement(mc);
-                if (nav != null || now - lastPlan < 400) { // still searching
+                if (nav != null) { // still searching
                     stage = "Planning the path";
                     float[] look = angles(p.getEyePosition(), c);
                     aim.setTarget(look[0], 8f, 520f, 1f);
@@ -805,11 +807,7 @@ public class MudwormMacro implements Feature {
                 float[] a = angles(p.getEyePosition(), aimPt);
                 aim.setTarget(a[0], a[1], 900f, 1.3f);
                 if (swapTicks > 0) swapTicks--;
-                // what the crosshair is on at teleport range (mc.hitResult only reaches the normal ~4.5 blocks)
-                Vec3 eyeNow = p.getEyePosition();
-                BlockHitResult looking = mc.level.clip(new ClipContext(eyeNow, eyeNow.add(p.getLookAngle().scale(etherRange + 2.0)),
-                        ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, p));
-                boolean onIt = looking.getType() == HitResult.Type.BLOCK && looking.getBlockPos().equals(etherBlock);
+                boolean onIt = crosshairOn(mc, p);
                 sneak(mc, true);
                 if (swapTicks == 0 && aim.settled(p, 2f) && onIt) {
                     etherStep = 2;
@@ -821,8 +819,13 @@ public class MudwormMacro implements Feature {
             }
             case 2 -> { // sneak is registered after a couple of ticks, then the click
                 sneak(mc, true);
-                if (now - etherAt > 1200) { // never crouched (key setting?): give up this teleport
+                if (now - etherAt > 1200 && !p.isShiftKeyDown()) { // never crouched (key setting?): give up this teleport
                     etherFail(mc, now, "the player never crouched (shift not registering)");
+                } else if (now - etherAt >= 130 && p.isShiftKeyDown() && !crosshairOn(mc, p)) {
+                    // the camera drifted off the block while we waited for shift: keep aiming, click only when on it
+                    float[] a2 = angles(p.getEyePosition(), aimPt);
+                    aim.setTarget(a2[0], a2[1], 900f, 1.3f);
+                    if (now - etherAt > 2500) etherFail(mc, now, "the crosshair kept drifting off the block");
                 } else if (now - etherAt >= 130 && p.isShiftKeyDown()) {
                     etherFrom = p.position();
                     if (debug) Notify.msg(String.format(Locale.ROOT, "Teleport: shift + right-click toward %d %d %d", etherBlock.getX(), etherBlock.getY(), etherBlock.getZ()));
@@ -850,6 +853,14 @@ public class MudwormMacro implements Feature {
     }
 
     private volatile String lastEtherFail = "none";
+
+    /** Whether the crosshair is on the teleport block (at teleport range; mc.hitResult only reaches the normal ~4.5 blocks). */
+    private boolean crosshairOn(Minecraft mc, LocalPlayer p) {
+        Vec3 e = p.getEyePosition();
+        BlockHitResult h = mc.level.clip(new ClipContext(e, e.add(p.getLookAngle().scale(etherRange + 2.0)),
+                ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, p));
+        return h.getType() == HitResult.Type.BLOCK && h.getBlockPos().equals(etherBlock);
+    }
 
     private void etherFail(Minecraft mc, long now, String why) {
         lastEtherFail = why;
@@ -1008,6 +1019,8 @@ public class MudwormMacro implements Feature {
         pendingEther = null;
         if (r.path().isEmpty()) {
             leg = null;
+            navFailGoal = goal; // no way on foot: do not search again at once, try a teleport instead
+            navFailAt = System.currentTimeMillis();
             return;
         }
         List<Vec3> pts = new ArrayList<>();

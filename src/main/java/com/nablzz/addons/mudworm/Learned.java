@@ -25,6 +25,7 @@ final class Learned {
 
     private final Set<BlockPos> avoid = new LinkedHashSet<>();
     private final Set<BlockPos> strike = new LinkedHashSet<>();
+    private final Set<BlockPos> landStrike = new LinkedHashSet<>();
     private final Set<BlockPos> landing = new LinkedHashSet<>();
     private final Set<String> tp = new LinkedHashSet<>();
     private Path file;
@@ -65,8 +66,12 @@ final class Learned {
         return landing.contains(b);
     }
 
+    /** A landing is only banned once it failed twice (one failure can be lag or a click that came a moment too early). */
     synchronized void addBadLanding(BlockPos b) {
-        if (add(landing, b)) dirty = true;
+        if (!landStrike.add(b)) {
+            if (add(landing, b)) dirty = true;
+        }
+        trim(landStrike);
     }
 
     private static String tpKey(BlockPos from, BlockPos goal) {
