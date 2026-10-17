@@ -184,6 +184,10 @@ public class MudwormMacro implements Feature {
         ClientReceiveMessageEvents.GAME.register((message, overlay) -> {
             String s = message.getString();
             if (s.toLowerCase(Locale.ROOT).contains("enough mana")) noManaUntil = System.currentTimeMillis() + 4000;
+            if (running && s.contains("There are blocks in the way")) { // the server refused a plain teleport
+                var pl = Minecraft.getInstance().player;
+                routeTp.serverBlocked(System.currentTimeMillis(), pl == null ? null : pl.blockPosition(), goal, LEARNED);
+            }
             if (overlay) return;
             if (running) MudwormProfit.onChat(s);
             if (s.contains("Mudworm")) {
@@ -507,7 +511,7 @@ public class MudwormMacro implements Feature {
             if (aotvReady(mc, p, now)) {
                 BlockPos pick = pendingEther;
                 pendingEther = null;
-                beginEther(mc, p, now, p.getEyePosition(), pick, true);
+                if (!beginEther(mc, p, now, p.getEyePosition(), pick, true)) pendingEther = null;
             } else if (now - pendingSince > 3000) { // cannot teleport (cooldown / no mana): walk instead
                 pendingEther = null;
                 navNoEtherUntil = now + 8000;
@@ -565,7 +569,7 @@ public class MudwormMacro implements Feature {
         double tdx = target.x - p.getX(), tdz = target.z - p.getZ(), tl = Math.hypot(tdx, tdz);
         if (tl > 0.35 && err < 40f) {
             Vec3 dir = new Vec3(tdx / tl, 0, tdz / tl);
-            double reach = Math.min(0.8, tl);
+            double reach = Math.min(0.6, tl);
             Vec3 f0 = new Vec3(p.getX(), p.getY() + 0.3, p.getZ()), f1 = new Vec3(p.getX(), p.getY() + 1.55, p.getZ());
             BlockHitResult lo = mc.level.clip(new ClipContext(f0, f0.add(dir.scale(reach)), ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, p));
             BlockHitResult hi = mc.level.clip(new ClipContext(f1, f1.add(dir.scale(reach)), ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, p));
@@ -580,7 +584,7 @@ public class MudwormMacro implements Feature {
                     jump = p.onGround(); // a low block in the way: hop over it
                 } else {
                     forward = false; // a wall: stop and plan around it
-                    if (now - lastWallReplan > 700) {
+                    if (now - lastWallReplan > 1500 || p.horizontalCollision && now - lastWallReplan > 700) {
                         lastWallReplan = now;
                         BlockPos cell = BlockPos.containing(p.getX() + dir.x, p.getY() + 0.1, p.getZ() + dir.z);
                         avoid.add(cell);
@@ -776,18 +780,61 @@ public class MudwormMacro implements Feature {
         return beginEther(mc, p, now, eye, pick, up);
     }
 
+    private boolean hitsBlock(Minecraft mc, LocalPlayer p, Vec3 eye, Vec3 t, BlockPos b) {
+        Vec3 dir = t.subtract(eye).normalize();
+        BlockHitResult h = mc.level.clip(new ClipContext(eye, eye.add(dir.scale(etherRange + 2.0)),
+                ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, p));
+        return h.getType() == HitResult.Type.BLOCK && h.getBlockPos().equals(b);
+    }
+
+    /**
+     * The point of the block to look at: one that is really in sight and keeps the crosshair on the block even when the
+     * camera sways a little (neighbouring rays must still hit it). Null when the block cannot be seen from here.
+     */
+    private Vec3 bestAim(Minecraft mc, LocalPlayer p, Vec3 eye, BlockPos b) {
+        Vec3 c = b.getCenter();
+        List<Vec3> pts = new ArrayList<>();
+        pts.add(c);
+        for (net.minecraft.core.Direction d : net.minecraft.core.Direction.values()) {
+            pts.add(c.add(d.getStepX() * 0.5, d.getStepY() * 0.5, d.getStepZ() * 0.5));
+            pts.add(c.add(d.getStepX() * 0.35, d.getStepY() * 0.35, d.getStepZ() * 0.35));
+        }
+        Vec3 best = null;
+        double bestScore = -1;
+        for (Vec3 t : pts) {
+            if (!hitsBlock(mc, p, eye, t, b)) continue;
+            Vec3 dir = t.subtract(eye).normalize();
+            Vec3 side = dir.cross(new Vec3(0, 1, 0));
+            if (side.lengthSqr() < 1e-6) side = new Vec3(1, 0, 0);
+            side = side.normalize();
+            Vec3 vert = side.cross(dir).normalize();
+            double dist = eye.distanceTo(t);
+            double score = 1;
+            for (int sgn = -1; sgn <= 1; sgn += 2) {
+                if (hitsBlock(mc, p, eye, t.add(side.scale(0.25 * sgn)), b)) score++;
+                if (hitsBlock(mc, p, eye, t.add(vert.scale(0.25 * sgn)), b)) score++;
+            }
+            score = score * 10 - t.distanceTo(c) * 5;
+            if (score > bestScore) {
+                bestScore = score;
+                best = t;
+            }
+        }
+        return best;
+    }
+
     /** Starts the teleport sequence to this landing block. */
     private boolean beginEther(Minecraft mc, LocalPlayer p, long now, Vec3 eye, BlockPos pick, boolean up) {
-        etherBlock = pick;
-        // aim at the middle of the block when the line to it is clear, otherwise at any visible spot of it
-        Vec3 mid = pick.getCenter();
-        BlockHitResult toMid = mc.level.clip(new ClipContext(eye, mid, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, p));
-        if (toMid.getType() == HitResult.Type.BLOCK && toMid.getBlockPos().equals(pick)) {
-            etherAim = mid;
-        } else {
-            BlockHitResult h = rayHit(mc, p, eye, pick);
-            etherAim = h != null ? h.getLocation() : mid;
+        Vec3 aimPt = bestAim(mc, p, eye, pick);
+        if (aimPt == null) { // not visible from here (we moved since it was picked): plan again from where we stand
+            if (debug) Notify.msg("Teleport: " + pick.toShortString() + " is not in sight from here, planning again.");
+            nextEther = now + 300;
+            leg = null;
+            lastPlan = 0;
+            return false;
         }
+        etherBlock = pick;
+        etherAim = aimPt;
         if (debug) Notify.msg(String.format(Locale.ROOT, "Teleport: aiming at the block %d %d %d (%.0f blocks away)", pick.getX(), pick.getY(), pick.getZ(), eye.distanceTo(pick.getCenter())));
         etherStep = 1;
         etherAt = now;
@@ -1019,6 +1066,7 @@ public class MudwormMacro implements Feature {
         pendingEther = null;
         if (r.path().isEmpty()) {
             leg = null;
+            if (debug) Notify.msg("Path: none found (" + r.expanded() + " cells searched)");
             navFailGoal = goal; // no way on foot: do not search again at once, try a teleport instead
             navFailAt = System.currentTimeMillis();
             return;
@@ -1189,6 +1237,7 @@ public class MudwormMacro implements Feature {
         ui.toggle("Soft route", "Follow the route and only detour to nearby spots. Off = always go to the nearest known spot first.", () -> softRoute, v -> softRoute = v);
         ui.toggle("Teleport along the route", "Face the next waypoint and spam the plain Aspect of the Void right-click (no shift). Shift-etherwarp is only used to go up. Off = walk the route.", () -> routeTp.enabled, v -> routeTp.enabled = v);
         ui.islider("Teleport delay", "Time between route right-clicks.", 120, 800, () -> routeTp.delayMs, v -> routeTp.delayMs = v, " ms");
+        ui.islider("Right-click distance", "How far one plain Aspect of the Void right-click teleports (8 blocks; more with Transmission Tuners).", 4, 16, () -> routeTp.reachBlocks, v -> routeTp.reachBlocks = v, " blocks");
         ui.islider("Detour radius", "Spots farther than this from you are left for the route to reach.", 8, 100, () -> detourRadius, v -> detourRadius = v, " blocks");
         ui.info("Waypoints", "Recorded patrol points.", () -> route.size() + "");
         ui.info("Learned", "What the pathfinder learned from getting stuck and from failed teleports (kept between lobbies and restarts).", LEARNED::summary);
@@ -1248,6 +1297,7 @@ public class MudwormMacro implements Feature {
             detourRadius = Integer.parseInt(p.getProperty("detourRadius", "" + detourRadius).trim());
             routeTp.enabled = Boolean.parseBoolean(p.getProperty("routeTp", "" + routeTp.enabled));
             routeTp.delayMs = Integer.parseInt(p.getProperty("tpDelayMs", "" + routeTp.delayMs).trim());
+            routeTp.reachBlocks = Integer.parseInt(p.getProperty("tpReach", "" + routeTp.reachBlocks).trim());
         } catch (Exception ignored) {
             // keep defaults
         }
@@ -1276,6 +1326,7 @@ public class MudwormMacro implements Feature {
         p.setProperty("detourRadius", "" + detourRadius);
         p.setProperty("routeTp", "" + routeTp.enabled);
         p.setProperty("tpDelayMs", "" + routeTp.delayMs);
+        p.setProperty("tpReach", "" + routeTp.reachBlocks);
         try (OutputStream out = Files.newOutputStream(file())) {
             p.store(out, "Nablzz Addons: mudworm macro");
         } catch (IOException ignored) {

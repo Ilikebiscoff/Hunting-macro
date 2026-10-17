@@ -25,6 +25,8 @@ final class RouteTeleport {
 
     volatile boolean enabled = true;
     volatile int delayMs = 250;
+    /** How far one plain right-click teleports (Instant Transmission: 8 blocks, more with Transmission Tuners). */
+    volatile int reachBlocks = 8;
 
     private long next, offUntil;
     private Vec3 last;
@@ -53,13 +55,13 @@ final class RouteTeleport {
         double dx = to.x - eye.x, dyy = to.y - eye.y, dz = to.z - eye.z;
         float yaw = (float) (Math.atan2(dz, dx) * 180.0 / Math.PI) - 90f;
         float pitch = (float) -(Math.atan2(dyy, Math.hypot(dx, dz)) * 180.0 / Math.PI);
-        // the teleport stops at walls: only click when the way (feet and head height) is clear and the landing is not liquid
-        double reach = Math.min(8.0, eye.distanceTo(to));
+        // the teleport always goes the full distance and refuses when something is in the way: the whole line (eye and
+        // feet height) must be clear, the landing spot must have room for the body and solid ground below it
+        double reach = reachBlocks;
         Vec3 dir = to.subtract(eye).normalize();
         Vec3 end = eye.add(dir.scale(reach));
         Vec3 feet = p.position().add(0, 0.3, 0);
-        if (blocked(mc, p, eye, end) || blocked(mc, p, feet, feet.add(dir.scale(reach)))
-                || !mc.level.getFluidState(BlockPos.containing(end)).isEmpty()) {
+        if (blocked(mc, p, eye, end) || blocked(mc, p, feet, feet.add(dir.scale(reach))) || !safeLanding(mc, end)) {
             return Result.WALK;
         }
         aim.setTarget(yaw, pitch, 900f, 1.3f);
@@ -83,6 +85,27 @@ final class RouteTeleport {
             next = now + Math.max(120, delayMs);
         }
         return Result.TELEPORT;
+    }
+
+    /** The server said "There are blocks in the way!": stop clicking from here for a while. */
+    void serverBlocked(long now, BlockPos from, BlockPos goal, Learned learned) {
+        offUntil = now + 5000;
+        if (goal != null && from != null) learned.addBadTp(from, goal);
+    }
+
+    /** Room for the body at the landing point (eye position {@code end}), and solid ground within 5 blocks below. */
+    private static boolean safeLanding(Minecraft mc, Vec3 end) {
+        var lv = mc.level;
+        BlockPos head = BlockPos.containing(end);
+        BlockPos foot = head.below();
+        if (!lv.getBlockState(head).getCollisionShape(lv, head).isEmpty()) return false;
+        if (!lv.getBlockState(foot).getCollisionShape(lv, foot).isEmpty()) return false;
+        if (!lv.getFluidState(head).isEmpty() || !lv.getFluidState(foot).isEmpty()) return false;
+        for (int k = 1; k <= 5; k++) {
+            BlockPos g = foot.below(k);
+            if (!lv.getBlockState(g).getCollisionShape(lv, g).isEmpty()) return lv.getFluidState(g).isEmpty() || k > 1;
+        }
+        return false; // nothing to land on: the void
     }
 
     private static boolean blocked(Minecraft mc, LocalPlayer p, Vec3 from, Vec3 to) {
