@@ -25,7 +25,8 @@ final class Walker {
     private String blockedWhy = "";
     private Vec3 stuckFrom;
     private long stuckAt;
-    private long jumpedAt;
+    private long jumpedAt, idxSince;
+    private int idxSeen = -1;
 
     boolean hasPath() {
         return path.size() >= 2;
@@ -34,6 +35,7 @@ final class Walker {
     void clear() {
         path = List.of();
         idx = 1;
+        idxSeen = -1;
         stuckFrom = null;
     }
 
@@ -116,24 +118,38 @@ final class Walker {
 
         while (idx < path.size()) { // reached the node (or already past it)?
             Nav4.Node n = path.get(idx);
+            Nav4.Node prev = path.get(idx - 1);
             double d = Math.hypot(n.x() + 0.5 - px, n.z() + 0.5 - pz);
             boolean level = Math.abs(n.y() - p.getY()) < 1.3;
             boolean last = idx == path.size() - 1;
-            if (d < (last ? 0.4 : 0.5) && level) {
+            boolean plain = n.kind() == Nav4.Kind.WALK || n.kind() == Nav4.Kind.FALL;
+            // passed the node: it lies behind us along the direction of travel (a turning circle must not trap us around it)
+            boolean passed = plain && d < 2.0 && level
+                    && (n.x() + 0.5 - px) * (n.x() - prev.x()) + (n.z() + 0.5 - pz) * (n.z() - prev.z()) <= 0;
+            if (level && (d < (last ? 0.6 : plain ? 0.8 : 0.6) || (!last && passed))) {
                 idx++;
                 continue;
             }
             if (!last && p.onGround() && d < 1.2) { // cut the corner when the next node is already closer
                 Nav4.Node nx = path.get(idx + 1);
                 double d2 = Math.hypot(nx.x() + 0.5 - px, nx.z() + 0.5 - pz);
-                boolean plain = nx.kind() == Nav4.Kind.WALK || nx.kind() == Nav4.Kind.FALL;
-                if (plain && n.kind() != Nav4.Kind.JUMP && n.kind() != Nav4.Kind.GAP && d2 < d
-                        && Math.abs(nx.y() - p.getY()) < 1.3) {
+                boolean nplain = nx.kind() == Nav4.Kind.WALK || nx.kind() == Nav4.Kind.FALL;
+                if (nplain && plain && d2 < d && Math.abs(nx.y() - p.getY()) < 1.3) {
                     idx++;
                     continue;
                 }
             }
             break;
+        }
+        if (idx != idxSeen) { // the same node for 3 s while close to it: circling, move on
+            idxSeen = idx;
+            idxSince = now;
+        } else if (now - idxSince > 3000 && idx < path.size()) {
+            Nav4.Node n = path.get(idx);
+            if (Math.hypot(n.x() + 0.5 - px, n.z() + 0.5 - pz) < 2.0 && Math.abs(n.y() - p.getY()) < 1.3) {
+                idx++;
+                idxSince = now;
+            }
         }
         if (idx >= path.size()) return Status.ARRIVED;
 
@@ -193,7 +209,7 @@ final class Walker {
         if (jump) jumpedAt = now;
 
         mc.options.keyUp.setDown(forward);
-        mc.options.keySprint.setDown(sprint && forward && err < 20f && t.kind() != Nav4.Kind.JUMP);
+        mc.options.keySprint.setDown(sprint && forward && err < 20f && dist > 2.5 && t.kind() != Nav4.Kind.JUMP);
         mc.options.keyJump.setDown(jump);
 
         // stuck: not 1.5 blocks further in 4 s
