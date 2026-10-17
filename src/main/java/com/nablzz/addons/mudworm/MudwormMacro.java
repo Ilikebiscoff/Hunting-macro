@@ -81,6 +81,8 @@ public class MudwormMacro implements Feature {
     /** Follow the route; only detour to spots within {@link #detourRadius} blocks of where we are. */
     public volatile boolean softRoute = true;
     public volatile int detourRadius = 30;
+    /** Spots more than this many blocks above or below you are ignored. */
+    public volatile int yRange = 10;
     public volatile String particleIds = "minecraft:happy_villager";
 
     // ---- state ----
@@ -498,6 +500,7 @@ public class MudwormMacro implements Feature {
         boolean soft = softRoute && route != null && route.size() > 0 && !lapDone;
         for (BlockPos s : MudwormTracker.SPOTS.keySet()) {
             if (visited.containsKey(s)) continue;
+            if (Math.abs(s.getY() - p.getY()) > yRange) continue; // too far above / below: not ours
             double d = s.getCenter().distanceToSqr(p.position());
             if (soft && d > (double) detourRadius * detourRadius) continue; // far away: the route gets us there
             if (d < bd) {
@@ -925,6 +928,7 @@ public class MudwormMacro implements Feature {
         ui.section("Patrol route");
         ui.note("Soft route: the macro walks these waypoints (shift + right-click teleport only for long hops). When a spot is within the detour radius it goes to it first, then carries on from the waypoint nearest to where it ended up.");
         ui.toggle("Soft route", "Follow the route and only detour to nearby spots. Off = always go to the nearest known spot first.", () -> softRoute, v -> softRoute = v);
+        ui.islider("Height range", "Spots more than this many blocks above or below you are ignored.", 3, 60, () -> yRange, v -> yRange = v, " blocks");
         ui.islider("Detour radius", "Spots farther than this from you are left for the route to reach.", 8, 100, () -> detourRadius, v -> detourRadius = v, " blocks");
         ui.info("Waypoints", "Recorded patrol points.", () -> route.size() + "");
         ui.info("Learned", "What the pathfinder learned from getting stuck and from failed teleports (kept between lobbies and restarts).", LEARNED::summary);
@@ -982,6 +986,7 @@ public class MudwormMacro implements Feature {
             grassOnly = Boolean.parseBoolean(p.getProperty("grassOnly", "" + grassOnly));
             softRoute = Boolean.parseBoolean(p.getProperty("softRoute", "" + softRoute));
             detourRadius = Integer.parseInt(p.getProperty("detourRadius", "" + detourRadius).trim());
+            yRange = Integer.parseInt(p.getProperty("yRange", "" + yRange).trim());
         } catch (Exception ignored) {
             // keep defaults
         }
@@ -1008,6 +1013,7 @@ public class MudwormMacro implements Feature {
         p.setProperty("grassOnly", "" + grassOnly);
         p.setProperty("softRoute", "" + softRoute);
         p.setProperty("detourRadius", "" + detourRadius);
+        p.setProperty("yRange", "" + yRange);
         try (OutputStream out = Files.newOutputStream(file())) {
             p.store(out, "Nablzz Addons: mudworm macro");
         } catch (IOException ignored) {
