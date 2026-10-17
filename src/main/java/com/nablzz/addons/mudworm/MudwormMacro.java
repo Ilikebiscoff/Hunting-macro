@@ -116,6 +116,11 @@ public class MudwormMacro implements Feature {
     private Vec3 etherFrom, etherAim;
     private int etherFails, swapTicks;
     private final RouteTeleport routeTp = new RouteTeleport();
+    // path finder v4 (see Nav4): the running search, the teleport it asked for, and the wall bookkeeping
+    private Nav4.Search nav;
+    private BlockPos navGoal, pendingEther;
+    private long pendingSince, navNoEtherUntil, lastWallReplan;
+    private int wallStrikes;
 
     // lobby swap
     private int lobbyStep;
@@ -346,7 +351,6 @@ public class MudwormMacro implements Feature {
             releaseKeys(mc);
             return;
         }
-        cache.tick(mc);
         visited.values().removeIf(t -> now - t > VISITED_MS);
 
         if (etherStep != 0) { // a teleport is in progress: nothing else moves
@@ -494,30 +498,30 @@ public class MudwormMacro implements Feature {
 
     private void walk(Minecraft mc, LocalPlayer p, long now) {
         stage = goalIsSpot ? "Walking to a spot" : "Walking the route";
-        Planner.Plan plan = planner.poll();
-        if (plan != null && !plan.legs().isEmpty()) {
-            leg = plan.legs().get(0);
-            idx = 0;
-            double bd = Double.MAX_VALUE; // start at the path point nearest to us, not at the beginning (we moved meanwhile)
-            List<Vec3> np = leg.path();
-            for (int i = 0; i < np.size(); i++) {
-                double d = np.get(i).distanceToSqr(p.position());
-                if (d < bd) {
-                    bd = d;
-                    idx = i;
-                }
+        if (nav != null && !goal.equals(navGoal)) nav = null; // the goal changed while it was searching
+        if (nav != null && nav.step(3_000_000L)) finishPlan(p);
+        if (pendingEther != null) { // the plan starts with a teleport
+            stage = "Teleporting";
+            releaseMovement(mc);
+            if (aotvReady(mc, p, now)) {
+                BlockPos pick = pendingEther;
+                pendingEther = null;
+                beginEther(mc, p, now, p.getEyePosition(), pick, true);
+            } else if (now - pendingSince > 3000) { // cannot teleport (cooldown / no mana): walk instead
+                pendingEther = null;
+                navNoEtherUntil = now + 8000;
+                leg = null;
+                lastPlan = 0;
             }
+            return;
         }
-        if ((leg == null && now - lastPlan > 500) || now - lastPlan > 6000) {
-            if (planner.request(cache.grid(), p.blockPosition(), List.of(goal), Set.of(), learnedAvoid())) lastPlan = now;
-        }
+        if (nav == null && ((leg == null && now - lastPlan > 400) || now - lastPlan > 6000)) startPlan(mc, p, now);
         Vec3 target;
         if (leg == null || leg.path().isEmpty()) {
             Vec3 c = goal.getCenter();
-            if (cache.grid() != null && Planner.walkable(cache.grid(), p.position(), c)) target = c; // straight line is safe
-            else {
+            {
                 releaseMovement(mc);
-                if (now - lastPlan < 700) { // the planner is still working on it
+                if (nav != null || now - lastPlan < 400) { // still searching
                     stage = "Planning the path";
                     float[] look = angles(p.getEyePosition(), c);
                     aim.setTarget(look[0], 8f, 520f, 1f);
@@ -552,9 +556,48 @@ public class MudwormMacro implements Feature {
                 : (float) (Math.atan2(target.z - p.getZ(), target.x - p.getX()) * 180.0 / Math.PI) - 90f;
         aim.setTarget(yaw, 8f, 520f, 1f);
         float err = Math.abs(net.minecraft.util.Mth.wrapDegrees(yaw - p.getYRot()));
-        mc.options.keyUp.setDown(err < 70f);
-        mc.options.keySprint.setDown(sprint && err < 25f);
-        mc.options.keyJump.setDown(p.onGround() && (p.horizontalCollision || target.y > p.getY() + 0.6));
+        boolean up = target.y > p.getY() + 0.6;
+        boolean forward = err < 55f;
+        boolean jump = p.onGround() && (p.horizontalCollision || up);
+        // look at the blocks right ahead: never walk into a wall
+        double tdx = target.x - p.getX(), tdz = target.z - p.getZ(), tl = Math.hypot(tdx, tdz);
+        if (tl > 0.35 && err < 40f) {
+            Vec3 dir = new Vec3(tdx / tl, 0, tdz / tl);
+            double reach = Math.min(0.8, tl);
+            Vec3 f0 = new Vec3(p.getX(), p.getY() + 0.3, p.getZ()), f1 = new Vec3(p.getX(), p.getY() + 1.55, p.getZ());
+            BlockHitResult lo = mc.level.clip(new ClipContext(f0, f0.add(dir.scale(reach)), ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, p));
+            BlockHitResult hi = mc.level.clip(new ClipContext(f1, f1.add(dir.scale(reach)), ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, p));
+            boolean loHit = lo.getType() == HitResult.Type.BLOCK, hiHit = hi.getType() == HitResult.Type.BLOCK;
+            if (loHit || hiHit) {
+                BlockPos wallPos = (loHit ? lo : hi).getBlockPos();
+                boolean stepOver = loHit && !hiHit && up; // a one-block step the path wants us to climb
+                if (stepOver) {
+                    jump = p.onGround();
+                } else if (loHit && !hiHit && mc.level.getBlockState(wallPos.above()).getCollisionShape(mc.level, wallPos.above()).isEmpty()
+                        && mc.level.getBlockState(wallPos.above(2)).getCollisionShape(mc.level, wallPos.above(2)).isEmpty()) {
+                    jump = p.onGround(); // a low block in the way: hop over it
+                } else {
+                    forward = false; // a wall: stop and plan around it
+                    if (now - lastWallReplan > 700) {
+                        lastWallReplan = now;
+                        BlockPos cell = BlockPos.containing(p.getX() + dir.x, p.getY() + 0.1, p.getZ() + dir.z);
+                        avoid.add(cell);
+                        if (++wallStrikes >= 2) LEARNED.addAvoid(cell);
+                        leg = null;
+                        lastPlan = 0;
+                        stage = "Wall ahead - planning around it";
+                    }
+                }
+            } else if (tl > 1.0) {
+                wallStrikes = 0;
+            }
+        }
+        // a gap jump: sprint-jump from the edge of the take-off cell
+        if (leg != null && idx + 1 < leg.moves().size() && leg.moves().get(idx + 1) == Planner.Move.GAP
+                && Math.hypot(leg.path().get(idx).x - p.getX(), leg.path().get(idx).z - p.getZ()) < 0.75) jump = p.onGround();
+        mc.options.keyUp.setDown(forward);
+        mc.options.keySprint.setDown(sprint && forward && err < 20f);
+        mc.options.keyJump.setDown(jump);
         if (etherStep == 0) sneak(mc, false);
 
         // stuck: not 2 blocks further in 5 s
@@ -728,6 +771,11 @@ public class MudwormMacro implements Feature {
             nextEther = now + 1200;
             return false;
         }
+        return beginEther(mc, p, now, eye, pick, up);
+    }
+
+    /** Starts the teleport sequence to this landing block. */
+    private boolean beginEther(Minecraft mc, LocalPlayer p, long now, Vec3 eye, BlockPos pick, boolean up) {
         etherBlock = pick;
         // aim at the middle of the block when the line to it is clear, otherwise at any visible spot of it
         Vec3 mid = pick.getCenter();
@@ -910,6 +958,115 @@ public class MudwormMacro implements Feature {
         Set<BlockPos> all = LEARNED.avoid();
         all.addAll(avoid);
         return all;
+    }
+
+    // ---- path finder v4 glue ---------------------------------------------------------------------------------
+
+    /** Starts a search from where we stand to the goal (time-sliced over the next ticks, see {@link Nav4}). */
+    private void startPlan(Minecraft mc, LocalPlayer p, long now) {
+        Nav4World w = new Nav4World(mc.level);
+        int sx = p.getBlockX(), sz = p.getBlockZ(), sy = (int) Math.floor(p.getY() + 0.05);
+        Nav4.Search probe = new Nav4.Search(w, sx, sy, sz, (x, y, z) -> true, sx, sy, sz, 0, null, null, 0, 1);
+        for (int dy : new int[]{0, -1, -2, 1}) { // snap to the nearest cell that can be stood on
+            if (probe.standable(sx, sy + dy, sz)) {
+                sy += dy;
+                break;
+            }
+        }
+        final BlockPos g = goal;
+        final boolean spot = goalIsSpot;
+        final Vec3 top = topOf(g);
+        Nav4.Goal done;
+        int tx = g.getX(), ty = g.getY() + 1, tz = g.getZ();
+        double slack;
+        if (spot) {
+            slack = ACT_REACH - 1.0;
+            done = (x, y, z) -> {
+                Vec3 e = new Vec3(x + 0.5, y + 1.62, z + 0.5);
+                if (e.distanceTo(top) > ACT_REACH - 0.4) return false;
+                return rayHit(mc, p, e, g) != null; // and we must see it from there
+            };
+        } else {
+            slack = 1.0;
+            done = (x, y, z) -> Math.abs(x - g.getX()) <= 1 && Math.abs(z - g.getZ()) <= 1 && Math.abs(y - (g.getY() + 1)) <= 2;
+        }
+        java.util.Set<Long> bad = new HashSet<>();
+        for (BlockPos b : learnedAvoid()) bad.add(Nav4.key(b.getX(), b.getY(), b.getZ()));
+        List<int[]> ether = List.of();
+        boolean canTp = useAotv && now >= noManaUntil && now >= nextEther && now >= aotvOffUntil && now >= navNoEtherUntil
+                && findSlot(p, aotvName) >= 0;
+        if (canTp) ether = etherCandidates(mc, p, p.getEyePosition(), 5.0);
+        nav = new Nav4.Search(w, p.getBlockX(), sy, p.getBlockZ(), done, tx, ty, tz, slack, bad, ether, 0.6 * aotvMinDist, 30_000);
+        navGoal = goal;
+        lastPlan = now;
+    }
+
+    /** The search finished: turn its result into the path the follower walks (and a first teleport, if it wants one). */
+    private void finishPlan(LocalPlayer p) {
+        Nav4.Result r = nav.result();
+        nav = null;
+        pendingEther = null;
+        if (r.path().isEmpty()) {
+            leg = null;
+            return;
+        }
+        List<Vec3> pts = new ArrayList<>();
+        List<Planner.Move> moves = new ArrayList<>();
+        for (Nav4.Node n : r.path()) {
+            pts.add(new Vec3(n.x() + 0.5, n.y(), n.z() + 0.5));
+            moves.add(switch (n.kind()) {
+                case JUMP -> Planner.Move.STEP_UP;
+                case FALL -> Planner.Move.DROP;
+                case GAP -> Planner.Move.GAP;
+                default -> Planner.Move.WALK;
+            });
+        }
+        if (r.path().size() > 1 && r.path().get(1).kind() == Nav4.Kind.ETHER) {
+            Nav4.Node e = r.path().get(1);
+            pendingEther = new BlockPos(e.x(), e.y() - 1, e.z()); // the block to land on
+            pendingSince = System.currentTimeMillis();
+        }
+        Nav4.Node last = r.path().get(r.path().size() - 1);
+        leg = new Planner.Leg(pts, moves, List.of(goal), new BlockPos(last.x(), last.y(), last.z()), 0, r.cost());
+        idx = 0;
+        double bd = Double.MAX_VALUE; // start at the path point nearest to us (we moved while it searched)
+        for (int i = 0; i < pts.size(); i++) {
+            double d = pts.get(i).distanceToSqr(p.position());
+            if (d < bd) {
+                bd = d;
+                idx = i;
+            }
+        }
+        if (debug) Notify.msg(String.format(Locale.ROOT, "Path: %d points, %s, %d cells searched%s", pts.size(),
+                r.complete() ? "reaches the goal" : "gets closer only", r.expanded(), pendingEther != null ? ", starts with a teleport" : ""));
+    }
+
+    /** Blocks the teleport can land on (seen in a fan of rays around us), nearest to the goal first. */
+    private List<int[]> etherCandidates(Minecraft mc, LocalPlayer p, Vec3 eye, double minHop) {
+        Vec3 to = goal.getCenter();
+        List<BlockPos> cands = new ArrayList<>();
+        Set<BlockPos> seen = new HashSet<>();
+        for (int pitch = -60; pitch <= 50; pitch += 6) {
+            double cp = Math.cos(Math.toRadians(pitch)), sp = -Math.sin(Math.toRadians(pitch));
+            int yawStep = Math.max(5, (int) Math.round(6.0 / Math.max(0.25, cp)));
+            for (int yaw = 0; yaw < 360; yaw += yawStep) {
+                double yr = Math.toRadians(yaw);
+                Vec3 dir = new Vec3(-Math.sin(yr) * cp, sp, Math.cos(yr) * cp);
+                BlockHitResult h = mc.level.clip(new ClipContext(eye, eye.add(dir.scale(etherRange)),
+                        ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, p));
+                if (h.getType() != HitResult.Type.BLOCK) continue;
+                BlockPos b = h.getBlockPos();
+                if (!seen.add(b) || !landable(mc, b) || eye.distanceTo(b.getCenter()) < minHop) continue;
+                cands.add(b);
+            }
+        }
+        cands.sort((x, y) -> Double.compare(x.getCenter().distanceToSqr(to), y.getCenter().distanceToSqr(to)));
+        List<int[]> out = new ArrayList<>();
+        for (int i = 0; i < Math.min(150, cands.size()); i++) {
+            BlockPos b = cands.get(i);
+            out.add(new int[]{b.getX(), b.getY() + 1, b.getZ()});
+        }
+        return out;
     }
 
     private void releaseMovement(Minecraft mc) {
