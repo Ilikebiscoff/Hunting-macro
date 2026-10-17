@@ -9,6 +9,7 @@ import net.fabricmc.loader.api.ModContainer;
 import net.fabricmc.loader.api.metadata.ModOrigin;
 import net.minecraft.client.Minecraft;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -54,6 +55,35 @@ public final class Updater {
     private static volatile Latest latest;
 
     // ---- public entry points --------------------------------------------------------------------
+
+    /**
+     * At game start: delete the older nablzz-addons jars (and half-downloaded files) next to the running one. After an
+     * update restart the old jar is no longer loaded, so it is not locked any more and can simply be removed.
+     */
+    public static void cleanOld() {
+        Path own = ownJar();
+        if (own == null) return;
+        int mine = buildOf(currentVersion());
+        Path dir = own.toAbsolutePath().getParent();
+        if (dir == null || mine < 0) return;
+        try (var files = Files.list(dir)) {
+            for (Path f : files.toList()) {
+                String n = f.getFileName().toString();
+                if (f.equals(own.toAbsolutePath()) || n.equals(own.getFileName().toString())) continue;
+                Matcher m = ASSET.matcher(n);
+                boolean old = m.matches() && Integer.parseInt(m.group(3)) < mine;
+                boolean part = n.startsWith("nablzz-addons-") && n.endsWith(".jar.part");
+                if (!old && !part) continue;
+                try {
+                    Files.deleteIfExists(f);
+                } catch (IOException ignored) {
+                    // still locked: the next start tries again
+                }
+            }
+        } catch (IOException | RuntimeException ignored) {
+            // nothing to clean
+        }
+    }
 
     /** First world join of this launch: quiet check, only speaks up if there is something newer. */
     public static void onJoin() {
@@ -175,8 +205,15 @@ public final class Updater {
             throw e;
         }
         scheduleDelete(currentJar);
-        say("Downloaded " + l.name() + ". Restart the game to use it. The old " + currentJar.getFileName()
-                + " is removed when the game closes (delete it by hand if it's still there).");
+        boolean gone = false;
+        try {
+            gone = Files.deleteIfExists(currentJar); // works when the OS does not lock the running jar
+        } catch (IOException ignored) {
+            // locked while the game runs
+        }
+        say("Downloaded " + l.name() + ". Restart the game to use it. "
+                + (gone ? "The old jar is deleted."
+                : "The old " + currentJar.getFileName() + " is deleted automatically when the game starts again."));
     }
 
     private static boolean isOurMod(Path jar) {

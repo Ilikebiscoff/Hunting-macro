@@ -42,6 +42,7 @@ public class NablzzAddons implements ClientModInitializer {
     public void onInitializeClient() {
         Prefs.init();
         Report.init();
+        Updater.cleanOld();
         // Add new features here: they get their own module in the settings screen automatically.
         Features.register(new MinerZombieHunting());
         Features.register(new GlowingMushroomMod());
