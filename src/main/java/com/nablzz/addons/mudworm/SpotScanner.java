@@ -206,7 +206,7 @@ public final class SpotScanner {
     }
 
     public static int countStrings(ClientLevel level, BlockPos pos) {
-        List list = level.getEntitiesOfClass(Display.ItemDisplay.class, AABB.ofSize((Vec3)Vec3.atCenterOf((Vec3i)pos), (double)1.0, (double)1.0, (double)1.0), e -> true);
+        List<Display.ItemDisplay> list = level.getEntitiesOfClass(Display.ItemDisplay.class, AABB.ofSize((Vec3)Vec3.atCenterOf((Vec3i)pos), (double)1.0, (double)1.0, (double)1.0), e -> true);
         int n = 0;
         for (Display.ItemDisplay d : list) {
             if (!SpotScanner.isString(d)) continue;
@@ -226,7 +226,7 @@ public final class SpotScanner {
 
     private static boolean isString(Display.ItemDisplay d) {
         Display.ItemDisplay.ItemRenderState state = d.itemRenderState();
-        return state != null && !state.itemStack().isEmpty() && state.itemStack().is((Object)Items.STRING);
+        return state != null && !state.itemStack().isEmpty() && state.itemStack().is(Items.STRING);
     }
 
     public static void remove(BlockPos pos) {
@@ -255,9 +255,9 @@ public final class SpotScanner {
     public static void saveSites() {
         sitesDirty = false;
         lastSave = System.currentTimeMillis();
-        ArrayList<CallSite> lines = new ArrayList<CallSite>();
+        ArrayList<String> lines = new ArrayList<String>();
         for (BlockPos b : SITES) {
-            lines.add((CallSite)((Object)(b.getX() + "," + b.getY() + "," + b.getZ())));
+            lines.add(b.getX() + "," + b.getY() + "," + b.getZ());
         }
         try {
             Files.write(SITES_FILE, lines, new OpenOption[0]);

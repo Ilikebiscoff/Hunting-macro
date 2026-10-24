@@ -72,7 +72,7 @@ final class Dev {
         LocalPlayer p = mc.player;
         ClientLevel lv = mc.level;
         Macro m = Macro.INSTANCE;
-        ArrayList<Object> problems = new ArrayList<Object>();
+        ArrayList<String> problems = new ArrayList<String>();
         b.append("== Mudworm Macro dev dump ==\n");
         b.append("mod ").append(com.nablzz.addons.Updater.currentVersion()).append("   MC ").append(FabricLoader.getInstance().getModContainer("minecraft").map(c -> c.getMetadata().getVersion().getFriendlyString()).orElse("?")).append("   fabric loader ").append(FabricLoader.getInstance().getModContainer("fabricloader").map(c -> c.getMetadata().getVersion().getFriendlyString()).orElse("?")).append('\n');
         if (p == null || lv == null) {

@@ -60,25 +60,19 @@ public final class Etherwarp {
     private static BlockPos walk(Cells c, Vec3 from, Vec3 dir, double maxDist, int mode) {
         boolean bl;
         boolean passes;
-        boolean strict;
-        double ty;
-        double tx;
-        double dz;
-        int sy;
-        int sx;
         int x = (int)Math.floor(from.x);
         int y = (int)Math.floor(from.y);
         int z = (int)Math.floor(from.z);
-        int n = dir.x > 0.0 ? 1 : (sx = dir.x < 0.0 ? -1 : 0);
-        int n2 = dir.y > 0.0 ? 1 : (sy = dir.y < 0.0 ? -1 : 0);
+        int sx = dir.x > 0.0 ? 1 : (dir.x < 0.0 ? -1 : 0);
+        int sy = dir.y > 0.0 ? 1 : (dir.y < 0.0 ? -1 : 0);
         int sz = dir.z > 0.0 ? 1 : (dir.z < 0.0 ? -1 : 0);
         double dx = sx != 0 ? Math.abs(1.0 / dir.x) : Double.POSITIVE_INFINITY;
         double dy = sy != 0 ? Math.abs(1.0 / dir.y) : Double.POSITIVE_INFINITY;
-        double d = dz = sz != 0 ? Math.abs(1.0 / dir.z) : Double.POSITIVE_INFINITY;
-        double d2 = sx > 0 ? ((double)(x + 1) - from.x) * dx : (tx = sx < 0 ? (from.x - (double)x) * dx : Double.POSITIVE_INFINITY);
-        double d3 = sy > 0 ? ((double)(y + 1) - from.y) * dy : (ty = sy < 0 ? (from.y - (double)y) * dy : Double.POSITIVE_INFINITY);
+        double dz = sz != 0 ? Math.abs(1.0 / dir.z) : Double.POSITIVE_INFINITY;
+        double tx = sx > 0 ? ((double)(x + 1) - from.x) * dx : (sx < 0 ? (from.x - (double)x) * dx : Double.POSITIVE_INFINITY);
+        double ty = sy > 0 ? ((double)(y + 1) - from.y) * dy : (sy < 0 ? (from.y - (double)y) * dy : Double.POSITIVE_INFINITY);
         double tz = sz > 0 ? ((double)(z + 1) - from.z) * dz : (sz < 0 ? (from.z - (double)z) * dz : Double.POSITIVE_INFINITY);
-        boolean bl2 = strict = mode == 1 || mode == 0 && Config.strictRay;
+        boolean strict = mode == 1 || mode == 0 && Config.strictRay;
         do {
             double t;
             if (tx < ty && tx < tz) {
