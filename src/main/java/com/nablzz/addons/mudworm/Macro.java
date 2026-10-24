@@ -452,11 +452,11 @@ public final class Macro {
             this.stop(mc, "the last 8 lobbies all had fewer than " + Config.minSpots + " spots - lower /mudworm minspots");
             return true;
         }
-        Chat.msg("Only " + n + " spots in this lobby (minimum " + Config.minSpots + ") - refreshing: /is, then /warp murk");
+        Chat.msg("Only " + n + " spots in this lobby (minimum " + Config.minSpots + ") - refreshing: /" + Config.swapFirst + ", then /" + Config.swapSecond);
         this.refreshing = true;
         this.lastSwitchAt = now;
-        this.pendingCommand = "warp murk";
-        this.beginWarp(mc, p, now, "is");
+        this.pendingCommand = Config.swapSecond.isBlank() ? null : Config.swapSecond;
+        this.beginWarp(mc, p, now, Config.swapFirst.isBlank() ? "warp galatea" : Config.swapFirst);
         return true;
     }
 
@@ -515,11 +515,11 @@ public final class Macro {
             this.idleSince = 0L;
             if (++this.idleStrikes >= 2) {
                 this.idleStrikes = 0;
-                Chat.msg("No spot in view for " + Config.stuckSeconds + " s twice in a row - swapping lobby: /is, then /warp murk");
+                Chat.msg("No spot in view for " + Config.stuckSeconds + " s twice in a row - swapping lobby: /" + Config.swapFirst + ", then /" + Config.swapSecond);
                 this.refreshing = true;
                 this.lastSwitchAt = now;
-                this.pendingCommand = "warp murk";
-                this.beginWarp(mc, p, now, "is");
+                this.pendingCommand = Config.swapSecond.isBlank() ? null : Config.swapSecond;
+                this.beginWarp(mc, p, now, Config.swapFirst.isBlank() ? "warp galatea" : Config.swapFirst);
                 return;
             }
             this.stuckWarp(mc, p, now, "No spot in view and not moving for " + Config.stuckSeconds + " s");

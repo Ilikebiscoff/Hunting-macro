@@ -231,7 +231,7 @@ public final class MudwormMacro implements Feature {
             root.then(MudwormMacro.lit("minspots").then(RequiredArgumentBuilder.argument((String)"count", (ArgumentType)IntegerArgumentType.integer((int)0, (int)50)).executes(c -> {
                 Config.minSpots = IntegerArgumentType.getInteger((CommandContext)c, (String)"count");
                 Config.save();
-                Chat.msg((String)(Config.minSpots <= 0 ? "Lobby refresh is off." : "Fewer than " + Config.minSpots + " live spots in the lobby: it runs /is then /warp murk for a new lobby (cooldown " + Config.refreshCooldownSeconds + " s between switches)."));
+                Chat.msg((String)(Config.minSpots <= 0 ? "Lobby refresh is off." : "Fewer than " + Config.minSpots + " live spots in the lobby: it swaps lobby (/" + Config.swapFirst + " then /" + Config.swapSecond + ") (cooldown " + Config.refreshCooldownSeconds + " s between switches)."));
                 return 1;
             })));
             root.then(MudwormMacro.lit("refreshcooldown").then(RequiredArgumentBuilder.argument((String)"seconds", (ArgumentType)IntegerArgumentType.integer((int)5, (int)600)).executes(c -> {
@@ -296,7 +296,7 @@ public final class MudwormMacro implements Feature {
     }
 
     private static int help() {
-        for (String s : List.of("/mudworm start | stop | toggle (key K)", "/mudworm gui (opens the settings) | status | spots | reset (zero the status panel) | dev (copies a diagnostic report)", "/mudworm esp | hud | debug | strict | failsafe", "/mudworm stuckwarp | stuckcmd <command> | stucktime <seconds>", "/mudworm range <10-61> | ethercost <blocks>", "/mudworm area marsh | area here <radius>", "/mudworm axe (takes the item in your hand) | axe off | axe name <text>  (use an axe for mining spots)", "/mudworm minspots <n> | refreshcooldown <seconds>  (fewer than n spots in the lobby: /is then /warp murk, 0 = off)", "/mudworm maxdist <blocks>  (spots farther than this are never targeted, default 120)", "/mudworm scoottime <seconds> | scoot <blocks>  (walk to spots this close with WASD, 0 = off)", "/mudworm hopdelay <ms>  (extra wait before each teleport, default 250)", "/mudworm yband <below> <above>  (how far hops may stray up/down from the way to the spot)", "/mudworm blacklist | blacklist clear", "/mudworm sites clear | reload")) {
+        for (String s : List.of("/mudworm start | stop | toggle (key K)", "/mudworm gui (opens the settings) | status | spots | reset (zero the status panel) | dev (copies a diagnostic report)", "/mudworm esp | hud | debug | strict | failsafe", "/mudworm stuckwarp | stuckcmd <command> | stucktime <seconds>", "/mudworm range <10-61> | ethercost <blocks>", "/mudworm area marsh | area here <radius>", "/mudworm axe (takes the item in your hand) | axe off | axe name <text>  (use an axe for mining spots)", "/mudworm minspots <n> | refreshcooldown <seconds>  (fewer than n spots in the lobby: swap lobby, 0 = off)", "/mudworm maxdist <blocks>  (spots farther than this are never targeted, default 120)", "/mudworm scoottime <seconds> | scoot <blocks>  (walk to spots this close with WASD, 0 = off)", "/mudworm hopdelay <ms>  (extra wait before each teleport, default 250)", "/mudworm yband <below> <above>  (how far hops may stray up/down from the way to the spot)", "/mudworm blacklist | blacklist clear", "/mudworm sites clear | reload")) {
             Chat.msg(s);
         }
         return 1;
@@ -451,8 +451,10 @@ public final class MudwormMacro implements Feature {
             Config.save();
         });
         ui.section("New lobby");
-        ui.islider("Refresh below", "Fewer than this many live spots in the lobby: /is then /warp murk for a new lobby. 0 = off.", 0, 50, () -> Config.minSpots, v -> Config.minSpots = v, " spots");
+        ui.islider("Refresh below", "Fewer than this many live spots in the lobby: swap lobby (the two commands below). 0 = off.", 0, 50, () -> Config.minSpots, v -> Config.minSpots = v, " spots");
         ui.islider("Refresh cooldown", "At least this long between lobby switches.", 5, 600, () -> Config.refreshCooldownSeconds, v -> Config.refreshCooldownSeconds = v, " s");
+        ui.text("Swap: first command", "Run first when the lobby is swapped (without the slash). /warp galatea loads the island, so more spots are around.", () -> Config.swapFirst, v -> Config.swapFirst = v, 150, "warp galatea");
+        ui.text("Swap: second command", "Run a few seconds after the first one arrived (without the slash).", () -> Config.swapSecond, v -> Config.swapSecond = v, 150, "warp murk");
         ui.button("Forget blacklist", "Clears the spots skipped in this lobby.", "Clear", false, SpotScanner.BLACKLIST::clear);
 
         ui.tab("Safety", "F");

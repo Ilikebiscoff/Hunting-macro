@@ -26,6 +26,9 @@ public final class Config {
     public static boolean unstuckWarp = true;
     public static int stuckSeconds = 3;
     public static String stuckCommand = "warp murk";
+    /** Lobby swap: the first command (loads the island), then the second one after it arrived. Without the slash. */
+    public static String swapFirst = "warp galatea";
+    public static String swapSecond = "warp murk";
     public static int landBelow = 10;
     public static int landAbove = 12;
     public static int areaMargin = 30;
@@ -77,6 +80,8 @@ public final class Config {
         unstuckWarp = Config.b(p, "unstuckWarp", unstuckWarp);
         stuckSeconds = Math.max(1, Config.i(p, "stuckSeconds", stuckSeconds));
         stuckCommand = p.getProperty("stuckCommand", stuckCommand).trim();
+        swapFirst = p.getProperty("swapFirst", swapFirst).trim();
+        swapSecond = p.getProperty("swapSecond", swapSecond).trim();
         landBelow = Math.max(0, Config.i(p, "landBelow", landBelow));
         landAbove = Math.max(0, Config.i(p, "landAbove", landAbove));
         areaMargin = Math.max(0, Config.i(p, "areaMargin", areaMargin));
@@ -115,6 +120,8 @@ public final class Config {
         p.setProperty("unstuckWarp", "" + unstuckWarp);
         p.setProperty("stuckSeconds", "" + stuckSeconds);
         p.setProperty("stuckCommand", stuckCommand);
+        p.setProperty("swapFirst", swapFirst);
+        p.setProperty("swapSecond", swapSecond);
         p.setProperty("landBelow", "" + landBelow);
         p.setProperty("landAbove", "" + landAbove);
         p.setProperty("areaMargin", "" + areaMargin);
