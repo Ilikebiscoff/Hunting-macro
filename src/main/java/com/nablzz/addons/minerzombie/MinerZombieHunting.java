@@ -519,6 +519,21 @@ public class MinerZombieHunting implements Feature {
         Config.save(controller);
     }
 
+    @Override
+    public java.util.Map<String, Double> sessionCounters() {
+        java.util.Map<String, Double> m = new java.util.LinkedHashMap<>();
+        if (controller == null) return m;
+        m.put("Shards", (double) controller.shards);
+        m.put("Kills", (double) controller.killCount());
+        m.put("Black holes", (double) controller.holesPlaced);
+        return m;
+    }
+
+    @Override
+    public String sessionMain() {
+        return "Shards";
+    }
+
     private double holeLeft() {
         return Math.max(0, controller.holeLeftSec());
     }

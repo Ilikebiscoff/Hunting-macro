@@ -40,7 +40,7 @@ final class Hud {
         rows.add(new String[]{"Floor drops", m.floorDrops + "  (" + m.shards + " mudworm)"});
         rows.add(new String[]{"Etherwarps", "" + m.warps});
         Stats.Session ss = Stats.live();
-        if (ss != null && ss.seconds > 30) rows.add(new String[]{"Est. coins/h", com.nablzz.addons.planner.Fmt.coins(ss.perHour(ss.coins))});
+        if (ms > 30_000 && ss.coins > 0) rows.add(new String[]{"Est. coins/h", com.nablzz.addons.planner.Fmt.coins(ss.coins / hours)});
         if (Config.blatant) {
             rows.add(new String[]{"Mode", "BLATANT (silent aim)"});
         }

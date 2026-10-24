@@ -328,6 +328,21 @@ public class GlowingMushroomMod implements Feature {
         MushroomConfig.save(controller, failsafe);
     }
 
+    @Override
+    public java.util.Map<String, Double> sessionCounters() {
+        java.util.Map<String, Double> m = new java.util.LinkedHashMap<>();
+        m.put("Glowing mushrooms", (double) ProfitTracker.glowing);
+        m.put("Red mushrooms", (double) ProfitTracker.red);
+        m.put("Brown mushrooms", (double) ProfitTracker.brown);
+        m.put("Coins (est.)", ProfitTracker.coins());
+        return m;
+    }
+
+    @Override
+    public String sessionMain() {
+        return "Glowing mushrooms";
+    }
+
     private static String coins(double v) {
         if (ProfitTracker.glowingPrice < 0) return "?";
         if (v >= 1_000_000) return String.format(java.util.Locale.ROOT, "%.2fM", v / 1_000_000);

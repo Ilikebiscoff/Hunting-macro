@@ -41,6 +41,19 @@ public interface Feature {
     default void report(java.util.function.Consumer<String> out) {
     }
 
+    /**
+     * Cumulative counters of this macro (spots, shards, coins ...). The session log adds up how much they grew between
+     * Start and Stop. Empty = this feature has no statistics.
+     */
+    default java.util.Map<String, Double> sessionCounters() {
+        return java.util.Map.of();
+    }
+
+    /** The key of {@link #sessionCounters()} that says what a run achieved (used for rates and for spotting odd runs). */
+    default String sessionMain() {
+        return "";
+    }
+
     /** Write the feature's settings to disk (called when the screen closes or a setting changed). */
     void saveSettings();
 }

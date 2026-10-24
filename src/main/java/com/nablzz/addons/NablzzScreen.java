@@ -1065,9 +1065,13 @@ public class NablzzScreen extends Screen {
     }
 
     /** One line of a {@link Builder#table}: the cell texts, an optional colour per cell (0 = default), and a tooltip for the hint bar. */
-    public record TableLine(String[] cells, int[] colors, String tip) {
+    public record TableLine(String[] cells, int[] colors, String tip, Runnable click) {
+        public TableLine(String[] cells, int[] colors, String tip) {
+            this(cells, colors, tip, null);
+        }
+
         public TableLine(String[] cells, int color, String tip) {
-            this(cells, fillColor(cells.length, color), tip);
+            this(cells, fillColor(cells.length, color), tip, null);
         }
 
         private static int[] fillColor(int n, int c) {
@@ -1105,6 +1109,16 @@ public class NablzzScreen extends Screen {
         @Override
         boolean hoverable() {
             return false;
+        }
+
+        @Override
+        boolean down(double mx, double my, int button) {
+            int i = (int) Math.floor((my - (y + HEAD_H)) / LINE_H);
+            if (i < 0 || i >= cur.size() || button != 0) return false;
+            Runnable c = cur.get(i).click();
+            if (c == null) return false;
+            c.run();
+            return true;
         }
 
         private int[] columns() {

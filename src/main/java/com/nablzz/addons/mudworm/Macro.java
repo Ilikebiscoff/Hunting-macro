@@ -197,7 +197,6 @@ public final class Macro {
         this.goal = null;
         this.status = "Stopped";
         this.aim.loose();
-        Stats.end();
         Chat.msg("Stopped" + (String)(why == null ? "." : ": " + why));
     }
 
