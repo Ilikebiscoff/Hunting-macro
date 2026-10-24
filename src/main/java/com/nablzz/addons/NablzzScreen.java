@@ -1142,7 +1142,7 @@ public class NablzzScreen extends Screen {
                 boolean over = Ui.in(mx, my, x, ly, w, LINE_H) && Ui.in(mx, my, vx, vy, vw, vh);
                 if (over) {
                     Ui.fill(g, x, ly, w, LINE_H, Ui.withAlpha(0xFFFFFF, 14));
-                    if (ln.tip() != null && !ln.tip().isEmpty()) hint = ln.tip();
+                    if (ln.tip() != null && !ln.tip().isEmpty()) NablzzScreen.this.hint = ln.tip();
                 } else if (r % 2 == 1) {
                     Ui.fill(g, x, ly, w, LINE_H, Ui.withAlpha(0xFFFFFF, 6));
                 }
