@@ -455,6 +455,9 @@ public final class MudwormMacro implements Feature {
         ui.islider("Refresh cooldown", "At least this long between lobby switches.", 5, 600, () -> Config.refreshCooldownSeconds, v -> Config.refreshCooldownSeconds = v, " s");
         ui.text("Swap: first command", "Run first when the lobby is swapped (without the slash). /warp galatea loads the island, so more spots are around.", () -> Config.swapFirst, v -> Config.swapFirst = v, 150, "warp galatea");
         ui.text("Swap: second command", "Run a few seconds after the first one arrived (without the slash).", () -> Config.swapSecond, v -> Config.swapSecond = v, 150, "warp murk");
+        ui.islider("Nothing here: swap after", "Seconds with no spot in view (after arriving) before the lobby is swapped. Lower = faster to give up on an empty lobby.", 1, 30, () -> Config.noSpotSeconds, v -> Config.noSpotSeconds = v, " s");
+        ui.islider("Settle time", "Seconds after arriving in a lobby before it counts spots or starts the nothing-here timer (the terrain and particles need a moment).", 1, 10, () -> Config.settleSeconds, v -> Config.settleSeconds = v, " s");
+        ui.islider("Gap between the swap commands", "Pause between the first and the second swap command.", 500, 6000, () -> Config.swapGapMs, v -> Config.swapGapMs = v, " ms");
         ui.button("Forget blacklist", "Clears the spots skipped in this lobby.", "Clear", false, SpotScanner.BLACKLIST::clear);
 
         ui.tab("Safety", "F");

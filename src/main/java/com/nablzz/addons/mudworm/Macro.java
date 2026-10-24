@@ -267,7 +267,7 @@ public final class Macro {
             this.patrolVisited.clear();
             this.avoid.clear();
             this.lastSwitchAt = now;
-            this.settleUntil = now + 6000L;
+            this.settleUntil = now + (long)Config.settleSeconds * 1000L;
         }
         Vec3 pos = p.position();
         if (this.warping) {
@@ -279,9 +279,9 @@ public final class Macro {
                 this.warping = false;
                 this.resumeAt = now + (long)(moved ? 2000 : 500);
                 this.afterTeleport(pos, now);
-                this.settleUntil = now + 6000L;
+                this.settleUntil = now + (long)Config.settleSeconds * 1000L;
                 if (this.pendingCommand != null) {
-                    this.sendPendingAt = now + 3500L;
+                    this.sendPendingAt = now + (long)Config.swapGapMs;
                 } else if (this.refreshing) {
                     this.refreshing = false;
                     this.lastSwitchAt = now;
@@ -511,11 +511,11 @@ public final class Macro {
         if (this.idleSince == 0L) {
             this.idleSince = now;
         }
-        if (Config.unstuckWarp && now - this.idleSince > (long)Config.stuckSeconds * 1000L) {
+        if (now >= this.settleUntil && Config.noSpotSeconds > 0 && now - this.idleSince > (long)Config.noSpotSeconds * 1000L) {
             this.idleSince = 0L;
-            if (++this.idleStrikes >= 2) {
+            if (++this.idleStrikes >= 1) {
                 this.idleStrikes = 0;
-                Chat.msg("No spot in view for " + Config.stuckSeconds + " s twice in a row - swapping lobby: /" + Config.swapFirst + ", then /" + Config.swapSecond);
+                Chat.msg("No spot in view for " + Config.noSpotSeconds + " s - swapping lobby: /" + Config.swapFirst + ", then /" + Config.swapSecond);
                 this.refreshing = true;
                 this.lastSwitchAt = now;
                 this.pendingCommand = Config.swapSecond.isBlank() ? null : Config.swapSecond;

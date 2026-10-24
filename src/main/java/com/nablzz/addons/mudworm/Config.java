@@ -29,6 +29,12 @@ public final class Config {
     /** Lobby swap: the first command (loads the island), then the second one after it arrived. Without the slash. */
     public static String swapFirst = "warp galatea";
     public static String swapSecond = "warp murk";
+    /** Seconds with no spot in view before the lobby is swapped. */
+    public static int noSpotSeconds = 3;
+    /** Seconds after arriving in a lobby before the spots are counted / the "nothing here" timer may run. */
+    public static int settleSeconds = 3;
+    /** Pause between the two swap commands (ms). */
+    public static int swapGapMs = 2000;
     public static int landBelow = 10;
     public static int landAbove = 12;
     public static int areaMargin = 30;
@@ -82,6 +88,9 @@ public final class Config {
         stuckCommand = p.getProperty("stuckCommand", stuckCommand).trim();
         swapFirst = p.getProperty("swapFirst", swapFirst).trim();
         swapSecond = p.getProperty("swapSecond", swapSecond).trim();
+        noSpotSeconds = Math.max(1, Math.min(60, Config.i(p, "noSpotSeconds", noSpotSeconds)));
+        settleSeconds = Math.max(1, Math.min(15, Config.i(p, "settleSeconds", settleSeconds)));
+        swapGapMs = Math.max(300, Math.min(8000, Config.i(p, "swapGapMs", swapGapMs)));
         landBelow = Math.max(0, Config.i(p, "landBelow", landBelow));
         landAbove = Math.max(0, Config.i(p, "landAbove", landAbove));
         areaMargin = Math.max(0, Config.i(p, "areaMargin", areaMargin));
@@ -122,6 +131,9 @@ public final class Config {
         p.setProperty("stuckCommand", stuckCommand);
         p.setProperty("swapFirst", swapFirst);
         p.setProperty("swapSecond", swapSecond);
+        p.setProperty("noSpotSeconds", "" + noSpotSeconds);
+        p.setProperty("settleSeconds", "" + settleSeconds);
+        p.setProperty("swapGapMs", "" + swapGapMs);
         p.setProperty("landBelow", "" + landBelow);
         p.setProperty("landAbove", "" + landAbove);
         p.setProperty("areaMargin", "" + areaMargin);
