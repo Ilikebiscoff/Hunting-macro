@@ -51,7 +51,7 @@ public final class Updater {
     private static final AtomicBoolean busy = new AtomicBoolean();
     private static boolean checkedOnJoin, deleteScheduled;
 
-    private record Latest(String name, int build, long size, String digest, String url) {}
+    private record Latest(String name, int[] version, long size, String digest, String url) {}
     private static volatile Latest latest;
 
     // ---- public entry points --------------------------------------------------------------------
@@ -63,15 +63,15 @@ public final class Updater {
     public static void cleanOld() {
         Path own = ownJar();
         if (own == null) return;
-        int mine = buildOf(currentVersion());
+        int[] mine = versionOf(currentVersion());
         Path dir = own.toAbsolutePath().getParent();
-        if (dir == null || mine < 0) return;
+        if (dir == null || mine == null) return;
         try (var files = Files.list(dir)) {
             for (Path f : files.toList()) {
                 String n = f.getFileName().toString();
                 if (f.equals(own.toAbsolutePath()) || n.equals(own.getFileName().toString())) continue;
                 Matcher m = ASSET.matcher(n);
-                boolean old = m.matches() && Integer.parseInt(m.group(3)) < mine;
+                boolean old = m.matches() && compare(new int[]{Integer.parseInt(m.group(1)), Integer.parseInt(m.group(2)), Integer.parseInt(m.group(3))}, mine) < 0;
                 boolean part = n.startsWith("nablzz-addons-") && n.endsWith(".jar.part");
                 if (!old && !part) continue;
                 try {
@@ -127,8 +127,8 @@ public final class Updater {
         }
         Latest l = fetchLatest();
         latest = l;
-        int cur = buildOf(currentVersion());
-        if (l.build() <= cur) {
+        int[] cur = versionOf(currentVersion());
+        if (cur != null && compare(l.version(), cur) <= 0) {
             if (!quiet) say("Up to date (" + currentVersion() + ").");
             return;
         }
@@ -154,7 +154,7 @@ public final class Updater {
             Matcher m = ASSET.matcher(name);
             if (!m.matches()) continue;
             String digest = a.has("digest") && !a.get("digest").isJsonNull() ? a.get("digest").getAsString() : null;
-            return new Latest(name, Integer.parseInt(m.group(3)), a.get("size").getAsLong(), digest,
+            return new Latest(name, new int[]{Integer.parseInt(m.group(1)), Integer.parseInt(m.group(2)), Integer.parseInt(m.group(3))}, a.get("size").getAsLong(), digest,
                     a.get("browser_download_url").getAsString());
         }
         throw new IllegalStateException("no nablzz-addons jar on the latest-build release");
@@ -257,10 +257,18 @@ public final class Updater {
         return c == null ? "unknown" : c.getMetadata().getVersion().getFriendlyString();
     }
 
-    /** Build number = the last number of 1.0.N, or -1. */
-    private static int buildOf(String version) {
-        Matcher m = Pattern.compile("(\\d+)$").matcher(version);
-        return m.find() ? Integer.parseInt(m.group(1)) : -1;
+    /** "2.0.103" -> {2, 0, 103}, or null when it is not of that shape (a dev build). */
+    private static int[] versionOf(String version) {
+        Matcher m = Pattern.compile("^(\\d+)\\.(\\d+)\\.(\\d+)").matcher(version);
+        return m.find() ? new int[]{Integer.parseInt(m.group(1)), Integer.parseInt(m.group(2)), Integer.parseInt(m.group(3))} : null;
+    }
+
+    /** Compares major, then minor, then build. Negative: a is older than b. */
+    private static int compare(int[] a, int[] b) {
+        for (int i = 0; i < 3; i++) {
+            if (a[i] != b[i]) return Integer.compare(a[i], b[i]);
+        }
+        return 0;
     }
 
     /** Path of the running mod jar, or null when not started from a jar (dev environment). */
