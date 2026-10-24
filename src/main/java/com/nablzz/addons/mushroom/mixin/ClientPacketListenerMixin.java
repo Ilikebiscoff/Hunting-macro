@@ -15,4 +15,9 @@ public class ClientPacketListenerMixin {
     private void glowingmushroom$onParticle(ClientboundLevelParticlesPacket packet, CallbackInfo ci) {
         MushroomTracker.offer(packet);
     }
+
+    @Inject(method = "handleParticleEvent", at = @At("RETURN"))
+    private void nablzz$mudwormParticle(ClientboundLevelParticlesPacket packet, CallbackInfo ci) {
+        com.nablzz.addons.mudworm.SpotScanner.onParticle(packet);
+    }
 }
