@@ -59,6 +59,17 @@ public class NablzzScreen extends Screen {
         for (int i = 0; i < modules.size(); i++) if (modules.get(i).id.equals(startModule)) module = i;
     }
 
+    private void switchTab(String name) {
+        Module md = mod();
+        for (int i = 0; i < md.tabs.size(); i++) {
+            if (md.tabs.get(i).name.equals(name)) {
+                md.tab = i;
+                scroll = scrollTarget = 0;
+                return;
+            }
+        }
+    }
+
     private Module mod() {
         return modules.get(module);
     }
@@ -251,6 +262,13 @@ public class NablzzScreen extends Screen {
         public void tableJumpTop(String[] headers, double[] weights, boolean[] right, String empty, Supplier<List<TableLine>> lines) {
             TableRow t = new TableRow(headers, weights, right, empty, lines);
             t.jumpTop = true;
+            add(t);
+        }
+
+        /** Like {@link #table} but a click on a line opens another tab of this module (where the details of the line are). */
+        public void tableOpenTab(String tabName, String[] headers, double[] weights, boolean[] right, String empty, Supplier<List<TableLine>> lines) {
+            TableRow t = new TableRow(headers, weights, right, empty, lines);
+            t.openTab = tabName;
             add(t);
         }
 
@@ -1134,6 +1152,7 @@ public class NablzzScreen extends Screen {
         final String empty;
         final Supplier<List<TableLine>> source;
         boolean jumpTop;
+        String openTab;
         List<TableLine> cur = List.of();
 
         TableRow(String[] headers, double[] weights, boolean[] right, String empty, Supplier<List<TableLine>> source) {
@@ -1164,6 +1183,7 @@ public class NablzzScreen extends Screen {
             if (c == null) return false;
             c.run();
             if (jumpTop) scrollTarget = 0;
+            if (openTab != null) switchTab(openTab);
             return true;
         }
 

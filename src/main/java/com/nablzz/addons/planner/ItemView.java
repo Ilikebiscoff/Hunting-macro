@@ -6,7 +6,7 @@ import net.minecraft.client.gui.GuiGraphicsExtractor;
 import java.util.Locale;
 
 /** The two charts of the item details: price history and order book. */
-final class ItemView {
+public final class ItemView {
     private ItemView() {}
 
     static final int SELL = 0xFF60A5FA, OFFER = 0xFFFB923C;
@@ -19,7 +19,7 @@ final class ItemView {
         }
     }
 
-    static String message(GuiGraphicsExtractor g, int x, int y, int w, int h, String text) {
+    public static String message(GuiGraphicsExtractor g, int x, int y, int w, int h, String text) {
         return none(g, x, y, w, h, text);
     }
 
@@ -30,7 +30,7 @@ final class ItemView {
     }
 
     /** Insta-sell price and sell offer over time (recorded by this mod). */
-    static String price(GuiGraphicsExtractor g, int x, int y, int w, int h, int mx, int my, String id, String name, long windowMs) {
+    public static String price(GuiGraphicsExtractor g, int x, int y, int w, int h, int mx, int my, String id, String name, long windowMs) {
         long now = System.currentTimeMillis();
         History.Series hs = History.series(id, now, windowMs);
         if (hs.size() < 2) {
@@ -100,7 +100,7 @@ final class ItemView {
     }
 
     /** The two order books as bars per price level: buy orders on the left (best price in the middle), sell offers on the right. */
-    static String book(GuiGraphicsExtractor g, int x, int y, int w, int h, int mx, int my, Item it) {
+    public static String book(GuiGraphicsExtractor g, int x, int y, int w, int h, int mx, int my, Item it) {
         int nb = Math.min(it.boAmt.length, it.boPrice.length), ns = Math.min(it.soAmt.length, it.soPrice.length);
         if (nb == 0 && ns == 0) return none(g, x, y, w, h, "No order book data (the prices are an old copy, or this item has no orders)");
         Ui.rr(g, x, y, w, h, 4, Ui.FIELD);
