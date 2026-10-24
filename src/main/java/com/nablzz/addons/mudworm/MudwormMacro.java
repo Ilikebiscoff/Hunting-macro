@@ -46,6 +46,7 @@ public final class MudwormMacro implements Feature {
     @Override
     public void init() {
         Config.load();
+        Stats.load();
         SpotScanner.loadSites();
         KeyMapping toggle = KeyMappingHelper.registerKeyMapping((KeyMapping)new KeyMapping("key.nablzzaddons.mudworm_toggle", InputConstants.Type.KEYSYM, 75, KeyMapping.Category.MISC));
         ClientTickEvents.START_CLIENT_TICK.register(mc -> {
@@ -55,6 +56,7 @@ public final class MudwormMacro implements Feature {
             }
             SpotScanner.tick(mc);
             M.tick(mc);
+            Stats.tick();
         });
         ClientReceiveMessageEvents.GAME.register((message, overlay) -> M.onChat(message.getString()));
         HudElementRegistry.addLast((Identifier)Identifier.fromNamespaceAndPath((String)"mudwormmacro", (String)"status"), Hud::render);
@@ -80,6 +82,14 @@ public final class MudwormMacro implements Feature {
             root.then(MudwormMacro.lit("dev").executes(c -> MudwormMacro.run(Dev::run)));
             root.then(MudwormMacro.lit("status").executes(c -> {
                 Chat.msg(M.status() + " | spots known: " + SpotScanner.SPOTS.size() + " | sites: " + SpotScanner.SITES.size() + " | done: " + MudwormMacro.M.spotsDone + " | warps: " + MudwormMacro.M.warps);
+                return 1;
+            }));
+            root.then(MudwormMacro.lit("stats").executes(c -> {
+                Stats.Totals t = Stats.totals(true);
+                Chat.msg(String.format("Saved stats: %d sessions, %s, %d spots, %d floor drops, about %s coins (%s coins/h).", t.sessions,
+                        com.nablzz.addons.planner.Fmt.hours(t.seconds / 3600.0), t.spots, t.floorDrops, com.nablzz.addons.planner.Fmt.coins(t.coins),
+                        com.nablzz.addons.planner.Fmt.coins(t.perHour(t.coins))));
+                Chat.msg("Details in " + Stats.path());
                 return 1;
             }));
             root.then(MudwormMacro.lit("reset").executes(c -> {
@@ -296,7 +306,7 @@ public final class MudwormMacro implements Feature {
     }
 
     private static int help() {
-        for (String s : List.of("/mudworm start | stop | toggle (key K)", "/mudworm gui (opens the settings) | status | spots | reset (zero the status panel) | dev (copies a diagnostic report)", "/mudworm esp | hud | debug | strict | failsafe", "/mudworm stuckwarp | stuckcmd <command> | stucktime <seconds>", "/mudworm range <10-61> | ethercost <blocks>", "/mudworm area marsh | area here <radius>", "/mudworm axe (takes the item in your hand) | axe off | axe name <text>  (use an axe for mining spots)", "/mudworm minspots <n> | refreshcooldown <seconds>  (fewer than n spots in the lobby: swap lobby, 0 = off)", "/mudworm maxdist <blocks>  (spots farther than this are never targeted, default 120)", "/mudworm scoottime <seconds> | scoot <blocks>  (walk to spots this close with WASD, 0 = off)", "/mudworm hopdelay <ms>  (extra wait before each teleport, default 250)", "/mudworm yband <below> <above>  (how far hops may stray up/down from the way to the spot)", "/mudworm blacklist | blacklist clear", "/mudworm sites clear | reload")) {
+        for (String s : List.of("/mudworm start | stop | toggle (key K)", "/mudworm gui (opens the settings) | status | spots | stats (saved averages) | reset (zero the status panel) | dev (copies a diagnostic report)", "/mudworm esp | hud | debug | strict | failsafe", "/mudworm stuckwarp | stuckcmd <command> | stucktime <seconds>", "/mudworm range <10-61> | ethercost <blocks>", "/mudworm area marsh | area here <radius>", "/mudworm axe (takes the item in your hand) | axe off | axe name <text>  (use an axe for mining spots)", "/mudworm minspots <n> | refreshcooldown <seconds>  (fewer than n spots in the lobby: swap lobby, 0 = off)", "/mudworm maxdist <blocks>  (spots farther than this are never targeted, default 120)", "/mudworm scoottime <seconds> | scoot <blocks>  (walk to spots this close with WASD, 0 = off)", "/mudworm hopdelay <ms>  (extra wait before each teleport, default 250)", "/mudworm yband <below> <above>  (how far hops may stray up/down from the way to the spot)", "/mudworm blacklist | blacklist clear", "/mudworm sites clear | reload")) {
             Chat.msg(s);
         }
         return 1;
@@ -381,6 +391,12 @@ public final class MudwormMacro implements Feature {
         for (String line : text.split("\n")) out.accept(line);
     }
 
+    private static NablzzScreen.TableLine sessionLine(Stats.Session s, boolean live) {
+        String[] c = {s.start + (live ? " (now)" : ""), com.nablzz.addons.planner.Fmt.hours(s.seconds / 3600.0), "" + s.spots, "" + s.floorDrops,
+                com.nablzz.addons.planner.Fmt.coins(s.coins), com.nablzz.addons.planner.Fmt.coins(s.perHour(s.coins))};
+        return new NablzzScreen.TableLine(c, live ? Ui.GOOD : 0, s.warps + " etherwarps");
+    }
+
     private static String clock(long ms) {
         long s = ms / 1000L;
         return String.format("%02d:%02d:%02d", s / 3600L, s / 60L % 60L, s % 60L);
@@ -404,6 +420,48 @@ public final class MudwormMacro implements Feature {
         ui.confirmButton("Reset the numbers", "Sets the time, spots done, floor drops, shards and etherwarps (status panel and these tiles) back to zero. Same as /mudworm reset.", "Reset", M::resetStats);
         ui.button("Copy diagnostic report", "Copies what the macro sees (hotbar, spots, terrain, the planner) to the clipboard and saves it in the config folder.", "Copy", false,
                 () -> Dev.run(Minecraft.getInstance()));
+
+        ui.tab("Stats", "T");
+        ui.section("All sessions");
+        ui.tiles(() -> {
+            Stats.Totals t = Stats.totals(true);
+            return new String[][]{
+                    {com.nablzz.addons.planner.Fmt.coins(t.coins), "Coins (estimated)"},
+                    {com.nablzz.addons.planner.Fmt.coins(t.perHour(t.coins)), "Coins / hour"},
+                    {String.format(java.util.Locale.ROOT, "%.1f", t.perHour(t.floorDrops)), "Floor drops / hour"},
+                    {com.nablzz.addons.planner.Fmt.hours(t.seconds / 3600.0), "Time played"},
+                    {"" + t.spots, "Spots done"},
+                    {t.spots == 0 ? "-" : com.nablzz.addons.planner.Fmt.coins(t.coins / t.spots), "Coins / spot"},
+            };
+        });
+        ui.note("Saved in config/nablz_mudworm_stats.json (every minute while running and when you stop). Coins are estimates: each drop is valued at its Bazaar instant-sell price (after 1.25 % tax) when it happens; items the Bazaar does not sell count as 0.");
+        ui.section("Drops");
+        ui.table(new String[]{"Item", "Total", "Per hour", "Avg per drop", "Coins", "Coins/h", "Note"}, new double[]{2.5, 1, 1, 1, 1.2, 1.2, 1.2},
+                new boolean[]{false, true, true, true, true, true, false}, "No drops recorded yet. Run the macro and they appear here.", () -> {
+                    Stats.Totals t = Stats.totals(true);
+                    List<Map.Entry<String, Stats.Drop>> es = new java.util.ArrayList<>(t.drops.entrySet());
+                    es.sort((a, b) -> Double.compare(b.getValue().coins, a.getValue().coins));
+                    List<NablzzScreen.TableLine> out = new java.util.ArrayList<>();
+                    for (var e : es) {
+                        Stats.Drop d = e.getValue();
+                        String[] c = {e.getKey(), com.nablzz.addons.planner.Fmt.coins(d.count), String.format(java.util.Locale.ROOT, "%.1f", t.perHour(d.count)),
+                                String.format(java.util.Locale.ROOT, "%.1f", d.events == 0 ? 0 : (double) d.count / d.events), com.nablzz.addons.planner.Fmt.coins(d.coins),
+                                com.nablzz.addons.planner.Fmt.coins(t.perHour(d.coins)), d.unpriced > 0 ? "not on Bazaar" : ""};
+                        out.add(new NablzzScreen.TableLine(c, d.unpriced > 0 ? Ui.DIM : 0, d.events + " drops"));
+                    }
+                    return out;
+                });
+        ui.section("Sessions (newest first)");
+        ui.table(new String[]{"Started", "Time", "Spots", "Drops", "Coins", "Coins/h"}, new double[]{1.6, 1, 0.8, 0.8, 1.2, 1.2},
+                new boolean[]{false, true, true, true, true, true}, "No finished sessions yet.", () -> {
+                    List<Stats.Session> all = Stats.finished();
+                    Stats.Session lv = Stats.live();
+                    List<NablzzScreen.TableLine> out = new java.util.ArrayList<>();
+                    if (lv != null) out.add(sessionLine(lv, true));
+                    for (int i = all.size() - 1; i >= 0 && out.size() < 12; i--) out.add(sessionLine(all.get(i), false));
+                    return out;
+                });
+        ui.confirmButton("Clear saved stats", "Deletes all saved sessions and averages.", "Clear", Stats::clear);
 
         ui.tab("Etherwarp", "E");
         ui.section("Range and timing");

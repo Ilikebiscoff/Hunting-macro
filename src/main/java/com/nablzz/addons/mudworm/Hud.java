@@ -39,6 +39,8 @@ final class Hud {
         rows.add(new String[]{"Spots done", m.spotsDone + (String)(hours > 0.01 ? "  (" + (int)((double)m.spotsDone / hours) + "/h)" : "")});
         rows.add(new String[]{"Floor drops", m.floorDrops + "  (" + m.shards + " mudworm)"});
         rows.add(new String[]{"Etherwarps", "" + m.warps});
+        Stats.Session ss = Stats.live();
+        if (ss != null && ss.seconds > 30) rows.add(new String[]{"Est. coins/h", com.nablzz.addons.planner.Fmt.coins(ss.perHour(ss.coins))});
         if (Config.blatant) {
             rows.add(new String[]{"Mode", "BLATANT (silent aim)"});
         }

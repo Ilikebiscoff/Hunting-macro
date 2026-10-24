@@ -70,6 +70,28 @@ public final class Bazaar {
         return mixinPrice;
     }
 
+    /** Item id for a display name ("Fig Log" -> FIG_LOG), or null when the Bazaar does not sell it. */
+    public static String idOfName(String name) {
+        Parser.Snapshot sn = snapshot;
+        if (sn == null || name == null) return null;
+        String guess = name.trim().toUpperCase(java.util.Locale.ROOT).replace(' ', '_').replace("'", "").replace("-", "_");
+        if (sn.items().containsKey(guess)) return guess;
+        String want = name.trim().toLowerCase(java.util.Locale.ROOT);
+        for (var e : names.entrySet()) {
+            if (e.getValue().toLowerCase(java.util.Locale.ROOT).equals(want) && sn.items().containsKey(e.getKey())) return e.getKey();
+        }
+        return null;
+    }
+
+    /** What one item sells for instantly after tax, 0 when it is not on the Bazaar or has no buy order. */
+    public static double instaSellValue(String name) {
+        String id = idOfName(name);
+        Parser.Snapshot sn = snapshot;
+        if (id == null || sn == null) return 0;
+        Item it = sn.items().get(id);
+        return it == null ? 0 : it.buyOrder * (1 - 0.0125);
+    }
+
     public static String nameOf(String id) {
         String n = names.get(id);
         return n != null ? n : Fmt.pretty(id);

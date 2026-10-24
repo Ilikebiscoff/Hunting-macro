@@ -181,6 +181,7 @@ public final class Macro {
         this.moveRef = null;
         this.aim.reset();
         this.aim.retarget();
+        Stats.begin();
         Chat.msg("Started. Hypixel bans macros - you use this at your own risk.");
     }
 
@@ -196,6 +197,7 @@ public final class Macro {
         this.goal = null;
         this.status = "Stopped";
         this.aim.loose();
+        Stats.end();
         Chat.msg("Stopped" + (String)(why == null ? "." : ": " + why));
     }
 
@@ -215,6 +217,7 @@ public final class Macro {
         this.shards = 0;
         this.runMs = 0L;
         this.runStart = System.currentTimeMillis();
+        Stats.resetCurrent();
     }
 
     public long totalMs() {
@@ -230,6 +233,7 @@ public final class Macro {
         if (this.running && s.contains("There are blocks in the way")) {
             this.blockedAt = System.currentTimeMillis();
         }
+        Stats.chat(s);
         if (s.contains("FLOOR DROP!")) {
             ++this.floorDrops;
             this.lastFloorDrop = System.currentTimeMillis();
@@ -932,6 +936,7 @@ public final class Macro {
                 mc.gameMode.useItem((Player)p, InteractionHand.MAIN_HAND);
             }
             ++this.warps;
+            Stats.warp();
             Chat.log("Etherwarp #" + this.warps + " click: aiming at " + this.shot.target().toShortString() + ", ray ends on " + hit.toShortString() + " from " + p.blockPosition().toShortString());
             this.stage = Stage.WARP_WAIT;
             this.status = "Etherwarp: teleporting";
@@ -1171,6 +1176,7 @@ public final class Macro {
             this.nukeLast.remove(s);
             if (SpotScanner.SPOTS.containsKey(s)) {
                 ++this.spotsDone;
+            Stats.spot();
             this.refreshStreak = 0;
                 this.warpsSinceSpot = 0;
                 this.refreshesInARow = 0;
@@ -1223,6 +1229,7 @@ public final class Macro {
         if (strings || broken || this.lastFloorDrop >= this.digAt) {
             mc.gameMode.stopDestroyBlock();
             ++this.spotsDone;
+            Stats.spot();
             this.refreshStreak = 0;
             this.warpsSinceSpot = 0;
             Chat.log("Spot " + spot.toShortString() + " collected (" + (broken ? "block broken" : (strings ? "strings gone" : "floor drop message")) + ", " + (now - this.digAt) + " ms)");
