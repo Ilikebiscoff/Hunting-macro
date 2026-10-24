@@ -155,6 +155,40 @@ public final class Ui {
         return s + "..";
     }
 
+    /** Word-wraps the text to {@code maxW} pixels (a word longer than that is cut). Never returns an empty list. */
+    public static java.util.List<String> wrap(String s, int maxW) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        if (s == null || s.isEmpty()) {
+            out.add("");
+            return out;
+        }
+        maxW = Math.max(12, maxW);
+        for (String para : s.split("\n", -1)) {
+            StringBuilder line = new StringBuilder();
+            for (String word : para.split(" ", -1)) {
+                while (tw(word) > maxW && word.length() > 1) {
+                    int cut = word.length();
+                    while (cut > 1 && tw(word.substring(0, cut)) > maxW) cut--;
+                    if (line.length() > 0) {
+                        out.add(line.toString());
+                        line.setLength(0);
+                    }
+                    out.add(word.substring(0, cut));
+                    word = word.substring(cut);
+                }
+                String tryLine = line.length() == 0 ? word : line + " " + word;
+                if (tw(tryLine) > maxW && line.length() > 0) {
+                    out.add(line.toString());
+                    line = new StringBuilder(word);
+                } else {
+                    line = new StringBuilder(tryLine);
+                }
+            }
+            out.add(line.toString());
+        }
+        return out;
+    }
+
     /** Soft drop shadow made of a few translucent rings. */
     public static void shadow(GuiGraphicsExtractor g, int x, int y, int w, int h, int r) {
         for (int i = 6; i >= 1; i--) rr(g, x - i, y - i + 3, w + i * 2, h + i * 2, r + i, withAlpha(0x000000, 10 + (7 - i) * 3));

@@ -42,6 +42,8 @@ public class NablzzScreen extends Screen {
     private Row dragRow;
     private boolean mouseDown;
     private String hint = "";
+    /** A long tip near the mouse (wrapped); set by tables and charts, drawn last. */
+    private String tooltip = "";
         private int wx, wy, ww, wh, vx, vy, vw, vh;
 
     public NablzzScreen(String startModule) {
@@ -361,8 +363,37 @@ public class NablzzScreen extends Screen {
         // hint bar
         Ui.fill(g, vx, wy + wh - HINT_H - 4, vw, 1, Ui.LINE);
         boolean flashing = System.currentTimeMillis() < flashUntil;
-        Ui.text(g, Ui.fit(flashing ? flashText : hint, vw), vx, wy + wh - HINT_H + 1, flashing ? Ui.WARN : Ui.MUTED);
+        String bar = flashing ? flashText : hint;
+        if (Ui.tw(bar) <= vw) {
+            Ui.text(g, bar, vx, wy + wh - HINT_H + 1, flashing ? Ui.WARN : Ui.MUTED);
+        } else {
+            Ui.text(g, "(hover text is shown next to the mouse)", vx, wy + wh - HINT_H + 1, Ui.DIM);
+            if (tooltip.isEmpty()) tooltip = bar;
+        }
+        drawTooltip(g, mx, my);
         Ui.alpha = 1f;
+    }
+
+    private void drawTooltip(GuiGraphicsExtractor g, int mx, int my) {
+        if (tooltip == null || tooltip.isEmpty()) return;
+        int maxW = Math.min(320, width - 24);
+        List<String> lines = Ui.wrap(tooltip, maxW - 14);
+        int bw = 0;
+        for (String l : lines) bw = Math.max(bw, Ui.tw(l));
+        bw += 14;
+        int bh = lines.size() * 11 + 8;
+        int x = mx + 12, y = my + 14;
+        if (x + bw > width - 4) x = mx - bw - 8;
+        if (x < 4) x = 4;
+        if (y + bh > height - 4) y = my - bh - 8;
+        if (y < 4) y = 4;
+        Ui.shadow(g, x, y, bw, bh, 4);
+        Ui.rrb(g, x, y, bw, bh, 4, 0xF2151922, Ui.accent);
+        int ty = y + 5;
+        for (String l : lines) {
+            Ui.text(g, l, x + 7, ty, Ui.TEXT);
+            ty += 11;
+        }
     }
 
     private void drawSidebar(GuiGraphicsExtractor g, int mx, int my) {
@@ -484,6 +515,7 @@ public class NablzzScreen extends Screen {
         if (mouseDown && dragRow != null) dragRow.drag(mx);
 
         hint = "";
+        tooltip = "";
         g.enableScissor(vx - 2, vy, vx + vw + 2, vy + vh);
         int cardW = vw - 8;
         for (Section s : t.sections) {
@@ -1051,6 +1083,7 @@ public class NablzzScreen extends Screen {
     private final class InfoRow extends Row {
         final Supplier<String> value;
         final int color;
+        List<String> lines = List.of("");
 
         InfoRow(String label, String hint, Supplier<String> value, int color) {
             super(label, hint);
@@ -1064,10 +1097,16 @@ public class NablzzScreen extends Screen {
         }
 
         @Override
+        void prepare(int innerW) {
+            String v = value.get();
+            lines = Ui.wrap(v == null ? "" : v, Math.max(60, innerW - Ui.tw(label) - 24));
+            h = lines.size() <= 1 ? ROW_H : 10 + lines.size() * 11;
+        }
+
+        @Override
         void draw(GuiGraphicsExtractor g, int mx, int my, boolean hovered) {
             drawLabel(g);
-            String v = value.get();
-            Ui.textR(g, Ui.fit(v == null ? "" : v, w - Ui.tw(label) - 16), x + w, y + 7, color);
+            for (int k = 0; k < lines.size(); k++) Ui.textR(g, lines.get(k), x + w, y + 7 + k * 11, color);
         }
     }
 
@@ -1139,13 +1178,16 @@ public class NablzzScreen extends Screen {
         @Override
         void draw(GuiGraphicsExtractor g, int mx, int my, boolean hovered) {
             String tip = painter.paint(g, x, y + 2, w, h - 4, hovered ? mx : -1000, hovered ? my : -1000);
-            if (tip != null && !tip.isEmpty()) NablzzScreen.this.hint = tip;
+            if (tip != null && !tip.isEmpty()) NablzzScreen.this.tooltip = tip;
         }
     }
 
-    /** A table with a header row; the lines come from a supplier (called every frame, so keep it cheap). */
+    /**
+     * A table with a header row; the lines come from a supplier (called every frame, so keep it cheap). Text that does not
+     * fit its column wraps onto more lines of the same row, so nothing is cut off.
+     */
     private final class TableRow extends Row {
-        static final int HEAD_H = 15, LINE_H = 13;
+        static final int LINE_H = 11, PAD_Y = 3;
         final String[] headers;
         final double[] weights;
         final boolean[] right;
@@ -1154,6 +1196,10 @@ public class NablzzScreen extends Screen {
         boolean jumpTop;
         String openTab;
         List<TableLine> cur = List.of();
+        int[] colX = new int[0], colW = new int[0], offs = new int[0], heights = new int[0];
+        String[][] headWrap = new String[0][];
+        int headH = 15, lastW = -1;
+        final java.util.IdentityHashMap<TableLine, String[][]> wrapCache = new java.util.IdentityHashMap<>();
 
         TableRow(String[] headers, double[] weights, boolean[] right, String empty, Supplier<List<TableLine>> source) {
             super("", "");
@@ -1164,10 +1210,57 @@ public class NablzzScreen extends Screen {
             this.source = source;
         }
 
+        private void columns(int innerW) {
+            double total = 0;
+            for (double d : weights) total += d;
+            colX = new int[weights.length];
+            colW = new int[weights.length];
+            double acc = 0;
+            for (int i = 0; i < weights.length; i++) {
+                int x0 = (int) Math.round(acc / total * innerW);
+                acc += weights[i];
+                int x1 = (int) Math.round(acc / total * innerW);
+                colX[i] = x0;
+                colW[i] = Math.max(16, x1 - x0 - 8);
+            }
+            headWrap = new String[headers.length][];
+            int hl = 1;
+            for (int i = 0; i < headers.length; i++) {
+                headWrap[i] = Ui.wrap(headers[i], colW[i]).toArray(new String[0]);
+                hl = Math.max(hl, headWrap[i].length);
+            }
+            headH = hl * LINE_H + 6;
+            wrapCache.clear();
+        }
+
+        private String[][] wrapOf(TableLine ln) {
+            String[][] w = wrapCache.get(ln);
+            if (w != null) return w;
+            w = new String[Math.min(ln.cells().length, headers.length)][];
+            for (int i = 0; i < w.length; i++) w[i] = Ui.wrap(ln.cells()[i] == null ? "" : ln.cells()[i], colW[i]).toArray(new String[0]);
+            if (wrapCache.size() > 600) wrapCache.clear();
+            wrapCache.put(ln, w);
+            return w;
+        }
+
         @Override
         void prepare(int innerW) {
+            if (innerW != lastW) {
+                lastW = innerW;
+                columns(innerW);
+            }
             cur = source.get();
-            h = HEAD_H + Math.max(1, cur.size()) * LINE_H + 6;
+            offs = new int[cur.size()];
+            heights = new int[cur.size()];
+            int yy = headH;
+            for (int r = 0; r < cur.size(); r++) {
+                int n = 1;
+                for (String[] c : wrapOf(cur.get(r))) n = Math.max(n, c.length);
+                heights[r] = n * LINE_H + PAD_Y;
+                offs[r] = yy;
+                yy += heights[r];
+            }
+            h = (cur.isEmpty() ? headH + LINE_H + PAD_Y : yy) + 6;
         }
 
         @Override
@@ -1177,58 +1270,49 @@ public class NablzzScreen extends Screen {
 
         @Override
         boolean down(double mx, double my, int button) {
-            int i = (int) Math.floor((my - (y + HEAD_H)) / LINE_H);
-            if (i < 0 || i >= cur.size() || button != 0) return false;
-            Runnable c = cur.get(i).click();
-            if (c == null) return false;
-            c.run();
-            if (jumpTop) scrollTarget = 0;
-            if (openTab != null) switchTab(openTab);
-            return true;
-        }
-
-        private int[] columns() {
-            double total = 0;
-            for (double d : weights) total += d;
-            int[] xs = new int[weights.length + 1];
-            double acc = 0;
-            for (int i = 0; i < weights.length; i++) {
-                xs[i] = x + (int) Math.round(acc / total * w);
-                acc += weights[i];
+            if (button != 0) return false;
+            double rel = my - y;
+            for (int r = 0; r < cur.size(); r++) {
+                if (rel < offs[r] || rel >= offs[r] + heights[r]) continue;
+                Runnable c = cur.get(r).click();
+                if (c == null) return false;
+                c.run();
+                if (jumpTop) scrollTarget = 0;
+                if (openTab != null) switchTab(openTab);
+                return true;
             }
-            xs[weights.length] = x + w;
-            return xs;
+            return false;
         }
 
-        private void cell(GuiGraphicsExtractor g, String text, int i, int[] xs, int ty, int color) {
-            int cw = xs[i + 1] - xs[i] - 6;
-            String t = Ui.fit(text == null ? "" : text, cw);
-            if (right[i]) Ui.textR(g, t, xs[i + 1] - 4, ty, color);
-            else Ui.text(g, t, xs[i] + 2, ty, color);
+        private void cell(GuiGraphicsExtractor g, String[] lines, int i, int ty, int color) {
+            for (int k = 0; k < lines.length; k++) {
+                if (right[i]) Ui.textR(g, lines[k], x + colX[i] + colW[i] + 4, ty + k * LINE_H, color);
+                else Ui.text(g, lines[k], x + colX[i] + 2, ty + k * LINE_H, color);
+            }
         }
 
         @Override
         void draw(GuiGraphicsExtractor g, int mx, int my, boolean hovered) {
-            int[] xs = columns();
-            for (int i = 0; i < headers.length; i++) cell(g, headers[i], i, xs, y + 3, Ui.DIM);
-            Ui.fill(g, x, y + HEAD_H - 2, w, 1, Ui.LINE);
+            for (int i = 0; i < headWrap.length; i++) cell(g, headWrap[i], i, y + 3, Ui.DIM);
+            Ui.fill(g, x, y + headH - 2, w, 1, Ui.LINE);
             if (cur.isEmpty()) {
-                Ui.text(g, empty, x + 2, y + HEAD_H + 2, Ui.MUTED);
+                Ui.text(g, empty, x + 2, y + headH + 2, Ui.MUTED);
                 return;
             }
             for (int r = 0; r < cur.size(); r++) {
                 TableLine ln = cur.get(r);
-                int ly = y + HEAD_H + r * LINE_H;
-                boolean over = Ui.in(mx, my, x, ly, w, LINE_H) && Ui.in(mx, my, vx, vy, vw, vh);
+                int ly = y + offs[r];
+                boolean over = Ui.in(mx, my, x, ly, w, heights[r]) && Ui.in(mx, my, vx, vy, vw, vh);
                 if (over) {
-                    Ui.fill(g, x, ly, w, LINE_H, Ui.withAlpha(0xFFFFFF, 14));
-                    if (ln.tip() != null && !ln.tip().isEmpty()) NablzzScreen.this.hint = ln.tip();
+                    Ui.fill(g, x, ly, w, heights[r], Ui.withAlpha(0xFFFFFF, ln.click() != null ? 18 : 10));
+                    if (ln.tip() != null && !ln.tip().isEmpty()) NablzzScreen.this.tooltip = ln.tip();
                 } else if (r % 2 == 1) {
-                    Ui.fill(g, x, ly, w, LINE_H, Ui.withAlpha(0xFFFFFF, 6));
+                    Ui.fill(g, x, ly, w, heights[r], Ui.withAlpha(0xFFFFFF, 6));
                 }
-                for (int i = 0; i < ln.cells().length && i < headers.length; i++) {
+                String[][] cells = wrapOf(ln);
+                for (int i = 0; i < cells.length; i++) {
                     int c = ln.colors() != null && i < ln.colors().length && ln.colors()[i] != 0 ? ln.colors()[i] : Ui.TEXT;
-                    cell(g, ln.cells()[i], i, xs, ly + 2, c);
+                    cell(g, cells[i], i, ly + 2, c);
                 }
             }
         }

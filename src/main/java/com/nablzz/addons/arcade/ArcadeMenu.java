@@ -17,7 +17,7 @@ public final class ArcadeMenu extends Screen implements Arcade.Marker {
     static final List<Game> CASINO = List.of(new Blackjack(), new Roulette(), new Baccarat(), new VideoPoker(), new Crash(), new Plinko());
     private static int tab;
 
-    private static final int ROW_H = 44, GAP = 6;
+    private static final int ROW_H = 46, GAP = 6;
 
     public ArcadeMenu() {
         super(Component.literal("Arcade"));
@@ -42,7 +42,7 @@ public final class ArcadeMenu extends Screen implements Arcade.Marker {
     }
 
     private int rowH() {
-        return tab == 0 ? ROW_H : 34;
+        return tab == 0 ? ROW_H : 42;
     }
 
     private int top() {
@@ -77,7 +77,8 @@ public final class ArcadeMenu extends Screen implements Arcade.Marker {
             boolean hov = Ui.in(mx, my, x, y, cw, rh);
             Ui.rrb(g, x, y, cw, rh, 6, hov ? Ui.CARD_HI : Ui.CARD, hov ? Ui.accent : Ui.LINE);
             Ui.text(g, gm.name(), x + 12, y + 6, Ui.TEXT);
-            Ui.text(g, Ui.fit(gm.blurb(), cw - 24), x + 12, y + rh - 14, Ui.MUTED);
+            java.util.List<String> bl = Ui.wrap(gm.blurb(), cw - 24 - 90);
+            for (int k = 0; k < bl.size() && k < 2; k++) Ui.text(g, bl.get(k), x + 12, y + 18 + k * 11, Ui.MUTED);
             Ui.textR(g, (tab == 1 ? "Peak chips " : "Best ") + Scores.best(gm.name()), x + cw - 12, y + 6, Ui.WARN);
         }
         if (tab == 1) Ui.textC(g, "Chips: " + Chips.balance(), width / 2, y0 + list().size() * (rh + GAP) + 2, Ui.WARN);
