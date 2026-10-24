@@ -14,8 +14,8 @@ import java.util.List;
 
 /** The game list in three tabs (Action, Puzzle, Casino). The games are kept between visits (a half-finished board is still there). */
 public final class ArcadeMenu extends Screen implements Arcade.Marker {
-    static final List<Game> ACTION = List.of(new Snake(), new Pong(), new Breakout(), new Flappy(), new Tetris(), new SpaceInvaders(), new WhackAMole(), new ShardClicker());
-    static final List<Game> PUZZLE = List.of(new Minesweeper(), new Game2048(), new MemoryMatch(), new LightsOut(), new Simon(), new TicTacToe(), new ConnectFour());
+    static final List<Game> ACTION = List.of(new Snake(), new Pong(), new Breakout(), new Flappy(), new Tetris(), new SpaceInvaders(), new WhackAMole(), new ShardClicker(), new Bloons());
+    static final List<Game> PUZZLE = List.of(new Minesweeper(), new Game2048(), new MemoryMatch(), new LightsOut(), new Simon(), new TicTacToe(), new ConnectFour(), new ReactionTime());
     static final List<Game> CASINO = List.of(new Blackjack(), new Roulette(), new Baccarat(), new VideoPoker(), new Crash(), new Plinko());
     private static final String[] TABS = {"Action", "Puzzle", "Casino"};
     private static final int GAP = 6;
