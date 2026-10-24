@@ -27,6 +27,10 @@ public final class Arcade {
     private static final KeyMapping[] KEYS = new KeyMapping[4];
     private static int pos;
     private static long lastAt;
+    // restoring the screen after a lobby swap (the world change closes every screen)
+    private static java.util.function.Supplier<Screen> restore;
+    private static Object restoreLevel;
+    private static long restoreAt;
 
     public static boolean isArcade(Screen s) {
         return s instanceof Marker;
@@ -47,7 +51,43 @@ public final class Arcade {
         return false;
     }
 
+    /** The player closed the screen on purpose: do not bring it back after the next lobby swap. */
+    public static void forget() {
+        restore = null;
+        restoreAt = 0;
+    }
+
+    private static void track(Minecraft mc) {
+        Screen s = mc.screen;
+        if (s instanceof GameScreen gs) {
+            final Game game = gs.game();
+            restore = () -> new GameScreen(game);
+            restoreLevel = mc.level;
+        } else if (s instanceof ArcadeMenu) {
+            restore = ArcadeMenu::new;
+            restoreLevel = mc.level;
+        } else if (s instanceof com.nablzz.addons.NablzzScreen ns) {
+            final String module = ns.currentModule();
+            restore = () -> new com.nablzz.addons.NablzzScreen(module);
+            restoreLevel = mc.level;
+        } else if (s == null && restore != null) {
+            if (!anyRunning()) {
+                forget();
+            } else if (mc.player != null && mc.level != null && mc.level != restoreLevel) { // a new world: the swap closed it
+                long now = System.currentTimeMillis();
+                if (restoreAt == 0) {
+                    restoreAt = now + 1500;
+                } else if (now >= restoreAt) {
+                    Screen back = restore.get();
+                    restoreAt = 0;
+                    mc.setScreen(back);
+                }
+            }
+        }
+    }
+
     private static void tick(Minecraft mc) {
+        track(mc);
         boolean active = mc.player != null && mc.screen == null && anyRunning();
         for (int k = 0; k < 4; k++) {
             while (KEYS[k].consumeClick()) {

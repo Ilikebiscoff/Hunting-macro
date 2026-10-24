@@ -19,6 +19,10 @@ final class GameScreen extends Screen implements Arcade.Marker {
         this.game = game;
     }
 
+    Game game() {
+        return game;
+    }
+
     @Override
     public boolean isPauseScreen() {
         return false;

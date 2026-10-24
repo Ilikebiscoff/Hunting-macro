@@ -73,8 +73,14 @@ public class NablzzScreen extends Screen {
         return false;
     }
 
+    /** Id of the module that is shown (to bring the screen back after a lobby swap). */
+    public String currentModule() {
+        return mod().id;
+    }
+
     @Override
     public void onClose() {
+        com.nablzz.addons.arcade.Arcade.forget();
         blur();
         saveAll();
         NablzzAddons.rememberModule(mod().id);

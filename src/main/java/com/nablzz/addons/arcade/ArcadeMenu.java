@@ -116,6 +116,7 @@ public final class ArcadeMenu extends Screen implements Arcade.Marker {
 
     @Override
     public void onClose() {
+        Arcade.forget();
         Minecraft.getInstance().setScreen(null);
     }
 }
