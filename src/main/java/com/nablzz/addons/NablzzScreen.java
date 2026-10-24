@@ -1368,6 +1368,7 @@ public class NablzzScreen extends Screen {
         final Module owner;
         final Supplier<String> sub;
         final String title;
+        List<String> subLines = List.of("");
 
         HeroRow(Module owner, Supplier<String> sub, String title) {
             super("", "Current state of the macro.");
@@ -1383,12 +1384,18 @@ public class NablzzScreen extends Screen {
         }
 
         @Override
+        void prepare(int innerW) {
+            subLines = Ui.wrap(title + "  -  " + sub.get(), Math.max(80, innerW - 130));
+            h = 43 + 11 * subLines.size();
+        }
+
+        @Override
         void draw(GuiGraphicsExtractor g, int mx, int my, boolean hovered) {
             boolean run = owner.running.getAsBoolean();
             float pulse = run ? 0.6f + 0.4f * (float) Math.sin(System.currentTimeMillis() / 250.0) : 1f;
             Ui.rr(g, x, y + 8, 8, 8, 4, Ui.mix(Ui.CARD, run ? Ui.GOOD : Ui.BAD, pulse));
             Ui.big(g, run ? "Running" : "Stopped", x + 16, y + 6, 1.6f, run ? Ui.GOOD : Ui.TEXT);
-            Ui.text(g, Ui.fit(title + "  -  " + sub.get(), w - 130), x + 16, y + 28, Ui.MUTED);
+            for (int k = 0; k < subLines.size(); k++) Ui.text(g, subLines.get(k), x + 16, y + 28 + k * 11, Ui.MUTED);
             int bw = 96, bx = x + w - bw, by = y + 8;
             boolean hb = Ui.in(mx, my, bx, by, bw, 26);
             int base = run ? Ui.BAD : Ui.GOOD;
