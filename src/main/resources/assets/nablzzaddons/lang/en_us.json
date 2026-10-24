@@ -1,4 +1,8 @@
 {
   "key.nablzzaddons.open_gui": "Nablzz Addons: open settings",
-  "key.nablzzaddons.mudworm_toggle": "Nablzz Addons: mudworm start / stop"
+  "key.nablzzaddons.mudworm_toggle": "Nablzz Addons: mudworm start / stop",
+  "key.nablzzaddons.arcade_up": "Nablzz Addons: secret code Up",
+  "key.nablzzaddons.arcade_down": "Nablzz Addons: secret code Down",
+  "key.nablzzaddons.arcade_left": "Nablzz Addons: secret code Left",
+  "key.nablzzaddons.arcade_right": "Nablzz Addons: secret code Right"
 }

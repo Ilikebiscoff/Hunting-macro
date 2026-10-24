@@ -313,7 +313,7 @@ public final class Macro {
             return;
         }
         this.lastPos = pos;
-        if (mc.screen != null) {
+        if (mc.screen != null && !com.nablzz.addons.arcade.Arcade.isArcade(mc.screen)) {
             Macro.release(mc);
             this.status = "Paused (screen open)";
             return;
@@ -1134,7 +1134,7 @@ public final class Macro {
     private void nukeNearby(Minecraft mc, LocalPlayer p, long now) {
         int ax;
         ClientLevel lv = mc.level;
-        if (lv == null || mc.gameMode == null || mc.screen != null) {
+        if (lv == null || mc.gameMode == null || (mc.screen != null && !com.nablzz.addons.arcade.Arcade.isArcade(mc.screen))) {
             return;
         }
         for (BlockPos s : new ArrayList<BlockPos>(this.nukeFirst.keySet())) {

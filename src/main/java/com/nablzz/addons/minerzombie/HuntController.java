@@ -442,7 +442,7 @@ public class HuntController {
 
     /** Called every rendered frame so the camera moves smoothly. */
     public void frame(Minecraft mc) {
-        if (!running || mc.player == null || mc.screen != null) return;
+        if (!running || mc.player == null || (mc.screen != null && !com.nablzz.addons.arcade.Arcade.isArcade(mc.screen))) return;
         aim.frame(mc, mc.player);
     }
 
@@ -504,7 +504,7 @@ public class HuntController {
         if (mc.level != null && mc.player != null && mc.level.getGameTime() % 4 == 0) updateEsp(mc);
         if (!running) return;
         LocalPlayer p = mc.player;
-        if (p == null || mc.level == null || (mc.screen != null && phase != Phase.RESCUE)) {
+        if (p == null || mc.level == null || ((mc.screen != null && !com.nablzz.addons.arcade.Arcade.isArcade(mc.screen)) && phase != Phase.RESCUE)) {
             releaseKeys(mc);
             return;
         }

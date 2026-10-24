@@ -148,7 +148,7 @@ public class MacroController {
 
     /** Called every rendered frame so the camera moves smoothly instead of 20 times a second. */
     public void frame(Minecraft mc) {
-        if (!running || mc.player == null || mc.screen != null) return;
+        if (!running || mc.player == null || (mc.screen != null && !com.nablzz.addons.arcade.Arcade.isArcade(mc.screen))) return;
         aim.frame(mc, mc.player);
     }
 
@@ -193,7 +193,7 @@ public class MacroController {
     public void tick(Minecraft mc) {
         if (!running) return;
         LocalPlayer p = mc.player;
-        if (p == null || mc.level == null || mc.screen != null) {
+        if (p == null || mc.level == null || (mc.screen != null && !com.nablzz.addons.arcade.Arcade.isArcade(mc.screen))) {
             releaseKeys(mc);
             return;
         }

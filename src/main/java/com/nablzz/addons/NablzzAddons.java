@@ -47,6 +47,7 @@ public class NablzzAddons implements ClientModInitializer {
         Features.register(new GlowingMushroomMod());
         Features.register(new FusionMachine());
         Features.register(new com.nablzz.addons.mudworm.MudwormMacro());
+        com.nablzz.addons.arcade.Arcade.init();
 
         openKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.nablzzaddons.open_gui",
                 InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_RIGHT_SHIFT, KeyMapping.Category.MISC));

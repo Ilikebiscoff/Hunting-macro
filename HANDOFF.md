@@ -25,4 +25,4 @@ Branch: `claude/wizardly-franklin-t55462` (PR #1). Sources: `src/main/java/com/n
 
 NOTE: the Galatea Mudworm macro was removed from the mod on request (the user restarts it in a new chat). Old code is in git history (commit 0d55069 and earlier).
 
-VERSIONING RULE (user request): the file `FEATURE_VERSION` in the repo root holds the middle number of the version (1.<middle>.<run>). Increase it by 1 in the same commit whenever a NEW FEATURE is added (not for fixes). The updater only compares the last number (the CI run number, always rising), so bumping the middle one is safe. Currently 0 (shipped as 1.0.90).
+VERSIONING RULE (user request): the file `FEATURE_VERSION` in the repo root holds the middle number of the version (1.<middle>.<run>). Increase it by 1 in the same commit whenever a NEW FEATURE is added (not for fixes). The updater only compares the last number (the CI run number, always rising), so bumping the middle one is safe. Currently 1 (secret arcade added, first 1.1.x build).

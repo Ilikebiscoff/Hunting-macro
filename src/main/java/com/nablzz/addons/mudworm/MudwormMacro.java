@@ -60,7 +60,7 @@ public final class MudwormMacro implements Feature {
         HudElementRegistry.addLast((Identifier)Identifier.fromNamespaceAndPath((String)"mudwormmacro", (String)"status"), Hud::render);
         LevelRenderEvents.BEFORE_GIZMOS.register(context -> {
             Minecraft mc = Minecraft.getInstance();
-            if (M.running() && mc.player != null && mc.screen == null) {
+            if (M.running() && mc.player != null && (mc.screen == null || com.nablzz.addons.arcade.Arcade.isArcade(mc.screen))) {
                 MudwormMacro.M.aim.frame(mc, mc.player);
             }
             if (Config.esp) {
