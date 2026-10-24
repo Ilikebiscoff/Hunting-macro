@@ -846,7 +846,12 @@ public final class Macro {
         } else {
             this.sneakSince = 0L;
         }
-        this.aim.setTarget(this.shot.yaw(), this.shot.pitch(), 2500.0f, 1.6f);
+        if (Config.blatant) {
+            this.aim.precise();
+            this.aim.setTarget(p.getYRot(), p.getXRot(), 100.0f, 1.0f);
+        } else {
+            this.aim.setTarget(this.shot.yaw(), this.shot.pitch(), 2500.0f, 1.6f);
+        }
         if (now - this.prepSince > (long)(3000 + Config.hopDelayMs)) {
             this.replan(mc, p, now, "could not line up the etherwarp");
             return;
@@ -859,8 +864,8 @@ public final class Macro {
         boolean sneakOk = this.sneakSince != 0L && now - this.sneakSince >= 200L && this.nextSlotChange <= now;
         float yawErr = Math.abs(Mth.wrapDegrees((float)(this.shot.yaw() - p.getYRot())));
         float pitchErr = Math.abs(this.shot.pitch() - p.getXRot());
-        boolean aimed = this.aim.settled(p, Math.max(0.1f, Macro.aimStep(mc) * 0.75f));
-        this.prepWhy = (sneakOk ? "sneak ok" : "waiting for sneak") + ", " + (still ? "still" : "moving/airborne") + ", " + (aimed ? "aimed" : String.format("aiming (err yaw %.2f pitch %.2f)", Float.valueOf(yawErr), Float.valueOf(pitchErr)));
+        boolean aimed = Config.blatant || this.aim.settled(p, Math.max(0.1f, Macro.aimStep(mc) * 0.75f));
+        this.prepWhy = (sneakOk ? "sneak ok" : "waiting for sneak") + ", " + (still ? "still" : "moving/airborne") + ", " + (Config.blatant ? "BLATANT (no head movement)" : (aimed ? "aimed" : String.format("aiming (err yaw %.2f pitch %.2f)", Float.valueOf(yawErr), Float.valueOf(pitchErr))));
         if (!(sneakOk && still && aimed)) {
             this.readySince = 0L;
             return;
@@ -875,11 +880,21 @@ public final class Macro {
         Cell.Live live = new Cell.Live((Level)mc.level);
         double range = Etherwarp.range(p.getInventory().getItem(slot));
         Vec3 eye = new Vec3(p.getX(), p.getY() + 1.27, p.getZ());
-        BlockPos hit = Etherwarp.predict(live, eye, yaw = p.getYRot(), pitch = p.getXRot(), range);
+        BlockPos hit = Etherwarp.predict(live, eye, yaw = Config.blatant ? this.shot.yaw() : p.getYRot(), pitch = Config.blatant ? this.shot.pitch() : p.getXRot(), range);
         if (hit != null && hit.distSqr((Vec3i)this.shot.target()) <= 100.0 && Etherwarp.coneSafe(live, eye, yaw, pitch, range)) {
             this.warpFrom = p.position();
             this.warpAt = now;
-            mc.gameMode.useItem((Player)p, InteractionHand.MAIN_HAND);
+            if (Config.blatant) {
+                float oy = p.getYRot();
+                float op = p.getXRot();
+                p.setYRot(yaw);
+                p.setXRot(pitch);
+                mc.gameMode.useItem((Player)p, InteractionHand.MAIN_HAND);
+                p.setYRot(oy);
+                p.setXRot(op);
+            } else {
+                mc.gameMode.useItem((Player)p, InteractionHand.MAIN_HAND);
+            }
             ++this.warps;
             Chat.log("Etherwarp #" + this.warps + " click: aiming at " + this.shot.target().toShortString() + ", ray ends on " + hit.toShortString() + " from " + p.blockPosition().toShortString());
             this.stage = Stage.WARP_WAIT;

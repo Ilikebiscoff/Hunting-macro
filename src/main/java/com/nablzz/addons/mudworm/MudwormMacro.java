@@ -3,6 +3,7 @@ package com.nablzz.addons.mudworm;
 import com.nablzz.addons.Feature;
 import com.nablzz.addons.NablzzAddons;
 import com.nablzz.addons.NablzzScreen;
+import com.nablzz.addons.Ui;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.brigadier.arguments.ArgumentType;
@@ -205,6 +206,17 @@ public final class MudwormMacro implements Feature {
                 Chat.msg("One scoot lasts at most " + Config.scootSeconds + " s, then the not-moving timer starts again.");
                 return 1;
             })));
+            root.then(((LiteralArgumentBuilder)MudwormMacro.lit("blatant").executes(c -> {
+                Chat.msg("Blatant mode is " + (Config.blatant ? "ON" : "off") + ". /mudworm blatant on  opens the mini game that unlocks it; /mudworm blatant off  turns it off.");
+                return 1;
+            })).then(MudwormMacro.lit("on").executes(c -> {
+                openBlatantGame();
+                return 1;
+            })).then(MudwormMacro.lit("off").executes(c -> {
+                Config.blatant = false;
+                Chat.msg("Blatant mode off.");
+                return 1;
+            })));
             root.then(MudwormMacro.lit("maxdist").then(RequiredArgumentBuilder.argument((String)"blocks", (ArgumentType)DoubleArgumentType.doubleArg((double)10.0, (double)400.0)).executes(c -> {
                 Config.maxTargetDistance = DoubleArgumentType.getDouble((CommandContext)c, (String)"blocks");
                 Config.save();
@@ -256,6 +268,12 @@ public final class MudwormMacro implements Feature {
         });
     }
 
+    /** Opens the mini game on the next tick (a command typed in chat closes the chat screen right after it ran). */
+    static void openBlatantGame() {
+        Minecraft mc = Minecraft.getInstance();
+        mc.execute(() -> mc.setScreen(new BlatantGame()));
+    }
+
     private static LiteralArgumentBuilder<FabricClientCommandSource> lit(String name) {
         return LiteralArgumentBuilder.literal((String)name);
     }
@@ -282,12 +300,10 @@ public final class MudwormMacro implements Feature {
     private static void drawBoxes() {
         Pathfinder.Goal g = M.goal();
         for (BlockPos s : SpotScanner.SPOTS.keySet()) {
-            int stroke;
-            boolean off;
             boolean cur = M.running() && g != null && s.equals((Object)g.spot());
             boolean bad = SpotScanner.BLACKLIST.contains(s);
-            boolean bl = off = !M.isExposed(s);
-            int n = bad ? -49088 : (off ? -8355712 : (stroke = cur ? -8144 : -13566112));
+            boolean off = !M.isExposed(s);
+            int stroke = bad ? -49088 : (off ? -8355712 : (cur ? -8144 : -13566112));
             int fill = bad ? 822034496 : (off ? 0x20808080 : (cur ? 1358946352 : 1076952928));
             Gizmos.cuboid((BlockPos)s, (GizmoStyle)GizmoStyle.strokeAndFill((int)stroke, (float)(cur ? 2.5f : 2.0f), (int)fill)).setAlwaysOnTop();
         }
@@ -438,6 +454,11 @@ public final class MudwormMacro implements Feature {
         ui.toggle("Warp when stuck", "Run the command below when the macro has not moved for the time below.", () -> Config.unstuckWarp, v -> Config.unstuckWarp = v);
         ui.islider("Stuck after", "Seconds without moving.", 1, 60, () -> Config.stuckSeconds, v -> Config.stuckSeconds = v, " s");
         ui.text("Stuck command", "Without the slash.", () -> Config.stuckCommand, v -> Config.stuckCommand = v, 150, "warp murk");
+        ui.section("Blatant mode");
+        ui.note("Blatant mode sends the etherwarp aim to the server WITHOUT turning your camera. It is much easier for anti-cheat and other players to spot: a ban is far more likely. It is off at every start.");
+        ui.info("State", "Whether silent aim is on.", () -> Config.blatant ? "ON" : "off", Ui.BAD);
+        ui.button("Enable blatant mode", "Opens a mini game: catch 5 shards to unlock it (or use the Override in its top right corner).", "Play", false, MudwormMacro::openBlatantGame);
+        ui.button("Turn blatant mode off", "Back to normal aiming.", "Off", false, () -> Config.blatant = false);
         ui.section("Fail-safe");
         ui.toggle("Stop when moved by something else", "Stops the macro if you are teleported by anything but its own etherwarp.", () -> Config.stopOnForeignTeleport, v -> Config.stopOnForeignTeleport = v);
 

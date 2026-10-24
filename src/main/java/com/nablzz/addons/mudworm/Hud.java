@@ -39,6 +39,9 @@ final class Hud {
         rows.add(new String[]{"Spots done", m.spotsDone + (String)(hours > 0.01 ? "  (" + (int)((double)m.spotsDone / hours) + "/h)" : "")});
         rows.add(new String[]{"Floor drops", m.floorDrops + "  (" + m.shards + " mudworm)"});
         rows.add(new String[]{"Etherwarps", "" + m.warps});
+        if (Config.blatant) {
+            rows.add(new String[]{"Mode", "BLATANT (silent aim)"});
+        }
         String title = "Mudworm Macro";
         int labelW = 0;
         int valueW = 0;

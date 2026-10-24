@@ -35,6 +35,8 @@ public final class Config {
     public static int minSpots = 3;
     public static int refreshCooldownSeconds = 45;
     public static double scootSeconds = 1.5;
+    /** Silent aim for etherwarps. Never saved: it is off at every start; the way on is the mini game (BlatantGame). */
+    public static volatile boolean blatant = false;
     public static boolean useAxe = false;
     public static String axeName = "Helix Chopper";
     public static int hopDelayMs = 250;
