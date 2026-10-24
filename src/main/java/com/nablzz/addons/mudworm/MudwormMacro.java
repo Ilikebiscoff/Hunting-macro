@@ -21,6 +21,7 @@ import com.nablzz.addons.mudworm.Macro;
 import com.nablzz.addons.mudworm.SpotScanner;
 import com.nablzz.addons.mudworm.path.Pathfinder;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
