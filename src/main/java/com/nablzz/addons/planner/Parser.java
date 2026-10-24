@@ -27,15 +27,23 @@ public final class Parser {
         return e == null || e.isJsonNull() ? 0 : e.getAsDouble();
     }
 
+    /** {amounts, prices, orders per level}. */
     private static double[][] levels(JsonArray arr) {
         int n = arr == null ? 0 : Math.min(DEPTH, arr.size());
-        double[] amt = new double[n], price = new double[n];
+        double[] amt = new double[n], price = new double[n], orders = new double[n];
         for (int i = 0; i < n; i++) {
             JsonObject l = arr.get(i).getAsJsonObject();
             amt[i] = num(l, "amount");
             price[i] = num(l, "pricePerUnit");
+            orders[i] = num(l, "orders");
         }
-        return new double[][]{amt, price};
+        return new double[][]{amt, price, orders};
+    }
+
+    private static int[] ints(double[] d) {
+        int[] o = new int[d.length];
+        for (int i = 0; i < d.length; i++) o[i] = (int) d[i];
+        return o;
     }
 
     /** https://api.hypixel.net/v2/skyblock/bazaar */
@@ -53,7 +61,8 @@ public final class Parser {
             JsonObject q = p.getAsJsonObject("quick_status");
             double bo = buyOrders[1].length > 0 ? buyOrders[1][0] : 0, so = sellOffers[1].length > 0 ? sellOffers[1][0] : 0;
             items.put(e.getKey(), new Item(e.getKey(), bo, so, (long) num(q, "sellMovingWeek"), (long) num(q, "buyMovingWeek"),
-                    buyOrders[0], buyOrders[1], sellOffers[0], sellOffers[1]));
+                    buyOrders[0], buyOrders[1], sellOffers[0], sellOffers[1], ints(buyOrders[2]), ints(sellOffers[2]),
+                    (long) num(q, "sellOrders"), (long) num(q, "buyOrders"), (long) num(q, "sellVolume"), (long) num(q, "buyVolume")));
         }
         return new Snapshot(items, root.has("lastUpdated") ? root.get("lastUpdated").getAsLong() : now, now);
     }

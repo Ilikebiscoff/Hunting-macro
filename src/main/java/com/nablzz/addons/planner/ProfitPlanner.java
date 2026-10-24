@@ -60,6 +60,9 @@ public final class ProfitPlanner implements Feature {
     // Bazaar browser
     private String search = "";
     private int sort;
+    private static final long[] RANGE_MS = {3_600_000L, 6 * 3_600_000L, 24 * 3_600_000L, 72 * 3_600_000L};
+    private String selItem;
+    private int chartRange = 2;
     private String bazaarKey = "";
     private List<TableLine> bazaarLines = List.of();
     private int bazaarCount;
@@ -310,7 +313,7 @@ public final class ProfitPlanner implements Feature {
     private List<TableLine> bazaarLines() {
         Parser.Snapshot sn = Bazaar.snapshot();
         if (sn == null) return List.of();
-        String key = Bazaar.version() + "|" + s.signature() + "|" + search + "|" + sort;
+        String key = Bazaar.version() + "|" + s.signature() + "|" + search + "|" + sort + "|" + selItem;
         if (key.equals(bazaarKey)) return bazaarLines;
         bazaarKey = key;
         String q = search.trim().toLowerCase(Locale.ROOT);
@@ -338,14 +341,36 @@ public final class ProfitPlanner implements Feature {
             Row r = rows.get(i);
             Item it = r.it;
             boolean flipOk = r.flip != Double.NEGATIVE_INFINITY;
-            String[] c = {r.name, it.buyOrder > 0 ? Fmt.coins(it.buyOrder) : "-", it.sellOffer > 0 ? Fmt.coins(it.sellOffer) : "-", Fmt.pct(it.spread()),
+            String[] c = {(it.id.equals(selItem) ? "> " : "") + r.name, it.buyOrder > 0 ? Fmt.coins(it.buyOrder) : "-", it.sellOffer > 0 ? Fmt.coins(it.sellOffer) : "-", Fmt.pct(it.spread()),
                     flipOk ? Fmt.signed(r.flip) : "-", flipOk ? Fmt.pct(r.margin) : "-", Fmt.volume(it.weeklyVol())};
-            int[] col = {0, 0, 0, it.spread() > s.maxSpread ? ORANGE : 0, flipOk ? (r.flip > 0 ? GOOD : BAD) : Ui.DIM, flipOk ? (r.margin > 0 ? GOOD : BAD) : Ui.DIM, 0};
+            int[] col = {it.id.equals(selItem) ? Ui.accent : 0, 0, 0, it.spread() > s.maxSpread ? ORANGE : 0, flipOk ? (r.flip > 0 ? GOOD : BAD) : Ui.DIM, flipOk ? (r.margin > 0 ? GOOD : BAD) : Ui.DIM, 0};
             String tip = it.id + "  |  buy order " + Fmt.coins(it.buyOrder) + ", sell offer " + Fmt.coins(it.sellOffer) + "  |  " + Fmt.volume(it.sellWeek) + " sold and "
-                    + Fmt.volume(it.buyWeek) + " bought per week  |  a flip = buy with an order, sell with an offer";
-            out.add(new TableLine(c, col, tip));
+                    + Fmt.volume(it.buyWeek) + " bought per week  |  click for details and graphs";
+            final String pick = it.id;
+            out.add(new TableLine(c, col, tip, () -> {
+                selItem = pick;
+                History.watch(pick);
+                bazaarKey = "";
+            }));
         }
         bazaarLines = out;
+        return out;
+    }
+
+    private Item selected() {
+        Parser.Snapshot sn = Bazaar.snapshot();
+        return sn == null || selItem == null ? null : sn.items().get(selItem);
+    }
+
+    private List<TableLine> detailLines() {
+        Item it = selected();
+        if (it == null) return List.of();
+        long now = System.currentTimeMillis();
+        List<TableLine> out = new ArrayList<>();
+        for (Details.Row r : Details.rows(it, History.series(it.id, now, 0), s.tax)) {
+            int c = r.color() == 1 ? GOOD : r.color() == 2 ? BAD : r.color() == 3 ? ORANGE : 0;
+            out.add(new TableLine(new String[]{r.label(), r.value(), r.note()}, new int[]{0, c, Ui.MUTED}, r.label() + ": " + r.value() + "  -  " + r.note()));
+        }
         return out;
     }
 
@@ -386,6 +411,21 @@ public final class ProfitPlanner implements Feature {
 
         // ---- bazaar browser
         ui.tab("Bazaar", "B");
+        ui.section("Item details");
+        ui.info("Item", "Click an item in the list further down to open it here.", () -> selItem == null ? "none - click an item in the list below"
+                : Bazaar.nameOf(selItem) + "  (" + selItem + ")", Ui.TEXT);
+        ui.choice("Graph range", "How far back the price graph goes. Prices are recorded every 5 minutes while the game is open (kept between sessions, up to 3 days).",
+                new String[]{"1 hour", "6 hours", "24 hours", "3 days"}, () -> chartRange, i -> chartRange = i);
+        ui.canvas(() -> selected() == null ? 30 : 132, (g, x, y, w, h, mx, my) -> {
+            Item it = selected();
+            if (it == null) return ItemView.message(g, x, y, w, h, "Click an item in the list below: its prices, graphs and numbers show up here.");
+            return ItemView.price(g, x, y, w, h, mx, my, it.id, Bazaar.nameOf(it.id), RANGE_MS[chartRange]);
+        });
+        ui.canvas(() -> selected() == null ? 1 : 122, (g, x, y, w, h, mx, my) -> {
+            Item it = selected();
+            return it == null || h < 30 ? null : ItemView.book(g, x, y, w, h, mx, my, it);
+        });
+        ui.table(new String[]{"What", "Value", "Note"}, new double[]{1.7, 1.7, 3.8}, new boolean[]{false, true, false}, "", this::detailLines);
         ui.section("Search");
         ui.text("Search", "Part of an item name or id. Empty = the best flips with enough weekly volume.", () -> search, v -> search = v, 180, "e.g. enchanted diamond");
         ui.choice("Sort by", "How the list is ordered.", new String[]{"Flip profit", "Flip margin", "Weekly volume", "Instant-sell price", "Name"}, () -> sort, i -> sort = i);
@@ -394,9 +434,9 @@ public final class ProfitPlanner implements Feature {
             return "" + bazaarCount;
         }, Ui.TEXT);
         ui.section("Items");
-        ui.table(new String[]{"Item", "Insta-sell", "Sell offer", "Spread", "Flip", "Margin", "Volume/wk"}, new double[]{3, 1, 1, 0.8, 1, 0.8, 1},
+        ui.tableJumpTop(new String[]{"Item", "Insta-sell", "Sell offer", "Spread", "Flip", "Margin", "Volume/wk"}, new double[]{3, 1, 1, 0.8, 1, 0.8, 1},
                 new boolean[]{false, true, true, true, true, true, true}, "No items match (or no prices yet).", this::bazaarLines);
-        ui.note("Flip = buy with a buy order at the top price, sell with a sell offer at the lowest offer, minus the Bazaar tax. A big margin on a small volume rarely works.");
+        ui.note("Click an item to see its graphs and numbers at the top. Flip = buy with a buy order at the top price, sell with a sell offer at the lowest offer, minus the Bazaar tax. A big margin on a small volume rarely works.");
 
         // ---- settings
         ui.tab("Settings", "T");

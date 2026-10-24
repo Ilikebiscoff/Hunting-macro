@@ -11,9 +11,20 @@ public final class Item {
     public final long sellWeek, buyWeek;
     /** Order book depth, best price first: amounts and prices of the buy orders and of the sell offers. */
     public final double[] boAmt, boPrice, soAmt, soPrice;
+    /** Orders per level of the two books (same indexes as the arrays above). */
+    public final int[] boOrders, soOrders;
+    /** Totals of the whole books from quick_status: number of orders and items waiting in the buy orders / the sell offers. */
+    public final long buyOrderCount, sellOfferCount, buyOrderItems, sellOfferItems;
 
     public Item(String id, double buyOrder, double sellOffer, long sellWeek, long buyWeek,
-                double[] boAmt, double[] boPrice, double[] soAmt, double[] soPrice) {
+                double[] boAmt, double[] boPrice, double[] soAmt, double[] soPrice,
+                int[] boOrders, int[] soOrders, long buyOrderCount, long sellOfferCount, long buyOrderItems, long sellOfferItems) {
+        this.boOrders = boOrders;
+        this.soOrders = soOrders;
+        this.buyOrderCount = buyOrderCount;
+        this.sellOfferCount = sellOfferCount;
+        this.buyOrderItems = buyOrderItems;
+        this.sellOfferItems = sellOfferItems;
         this.id = id;
         this.buyOrder = buyOrder;
         this.sellOffer = sellOffer;
@@ -23,6 +34,11 @@ public final class Item {
         this.boPrice = boPrice;
         this.soAmt = soAmt;
         this.soPrice = soPrice;
+    }
+
+    public Item(String id, double buyOrder, double sellOffer, long sellWeek, long buyWeek,
+                double[] boAmt, double[] boPrice, double[] soAmt, double[] soPrice) {
+        this(id, buyOrder, sellOffer, sellWeek, buyWeek, boAmt, boPrice, soAmt, soPrice, new int[0], new int[0], 0, 0, 0, 0);
     }
 
     public Item(String id, double buyOrder, double sellOffer, long sellWeek, long buyWeek) {

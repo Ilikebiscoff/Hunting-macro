@@ -41,7 +41,7 @@ public final class Bazaar {
     private static volatile boolean fromCache;
     private static volatile long nextAt, lastOkAt;
     private static volatile int version;
-    private static Path cacheFile;
+    private static Path cacheFile, historyFile;
     private static boolean started, wake;
     private static long namesAt;
 
@@ -109,7 +109,9 @@ public final class Bazaar {
         if (started) return;
         started = true;
         cacheFile = cache;
+        historyFile = cache.resolveSibling("nablz_bazaar_history.json");
         loadCache();
+        loadHistory();
         Thread t = new Thread(Bazaar::loop, "nablzz-bazaar");
         t.setDaemon(true);
         t.start();
@@ -174,6 +176,8 @@ public final class Bazaar {
         fromCache = false;
         version++;
         saveCache(s);
+        History.record(s.items(), s.fetchedAt());
+        saveHistory();
     }
 
     private static void fetchMixin() throws Exception {
@@ -194,6 +198,24 @@ public final class Bazaar {
     }
 
     // ---- disk copy ---------------------------------------------------------------------------------------
+
+    private static void saveHistory() {
+        if (historyFile == null || !History.dirty()) return;
+        try {
+            Files.writeString(historyFile, History.toJson());
+        } catch (IOException | RuntimeException ignored) {
+            // no history copy
+        }
+    }
+
+    private static void loadHistory() {
+        if (historyFile == null || !Files.isRegularFile(historyFile)) return;
+        try {
+            History.fromJson(Files.readString(historyFile));
+        } catch (IOException | RuntimeException ignored) {
+            // start empty
+        }
+    }
 
     private static void saveCache(Parser.Snapshot s) {
         if (cacheFile == null) return;

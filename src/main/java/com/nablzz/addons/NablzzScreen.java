@@ -247,6 +247,18 @@ public class NablzzScreen extends Screen {
             add(new TableRow(headers, weights, right, empty, lines));
         }
 
+        /** Like {@link #table} but a click on a line scrolls the screen back to the top (where the details of the line are shown). */
+        public void tableJumpTop(String[] headers, double[] weights, boolean[] right, String empty, Supplier<List<TableLine>> lines) {
+            TableRow t = new TableRow(headers, weights, right, empty, lines);
+            t.jumpTop = true;
+            add(t);
+        }
+
+        /** A custom-drawn row (chart) whose height can change. */
+        public void canvas(java.util.function.IntSupplier height, Painter painter) {
+            add(new CanvasRow(height, painter));
+        }
+
         /** A text box with an Add button. */
         public void add(String label, String hint, String placeholder, String buttonLabel, Consumer<String> action) {
             add(new AddRow(label, hint, placeholder, buttonLabel, action));
@@ -1081,6 +1093,38 @@ public class NablzzScreen extends Screen {
         }
     }
 
+    /** Draws a custom picture in a row (a chart). Returns a tooltip for the hint bar, or null. */
+    public interface Painter {
+        String paint(GuiGraphicsExtractor g, int x, int y, int w, int h, int mx, int my);
+    }
+
+    private final class CanvasRow extends Row {
+        final java.util.function.IntSupplier height;
+        final Painter painter;
+
+        CanvasRow(java.util.function.IntSupplier height, Painter painter) {
+            super("", "");
+            this.height = height;
+            this.painter = painter;
+        }
+
+        @Override
+        void prepare(int innerW) {
+            h = height.getAsInt();
+        }
+
+        @Override
+        boolean hoverable() {
+            return false;
+        }
+
+        @Override
+        void draw(GuiGraphicsExtractor g, int mx, int my, boolean hovered) {
+            String tip = painter.paint(g, x, y + 2, w, h - 4, hovered ? mx : -1000, hovered ? my : -1000);
+            if (tip != null && !tip.isEmpty()) NablzzScreen.this.hint = tip;
+        }
+    }
+
     /** A table with a header row; the lines come from a supplier (called every frame, so keep it cheap). */
     private final class TableRow extends Row {
         static final int HEAD_H = 15, LINE_H = 13;
@@ -1089,6 +1133,7 @@ public class NablzzScreen extends Screen {
         final boolean[] right;
         final String empty;
         final Supplier<List<TableLine>> source;
+        boolean jumpTop;
         List<TableLine> cur = List.of();
 
         TableRow(String[] headers, double[] weights, boolean[] right, String empty, Supplier<List<TableLine>> source) {
@@ -1118,6 +1163,7 @@ public class NablzzScreen extends Screen {
             Runnable c = cur.get(i).click();
             if (c == null) return false;
             c.run();
+            if (jumpTop) scrollTarget = 0;
             return true;
         }
 
