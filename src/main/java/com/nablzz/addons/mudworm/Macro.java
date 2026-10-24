@@ -105,6 +105,9 @@ public final class Macro {
     private long lastSwitchAt;
     private long settleUntil;
     private boolean refreshing;
+    /** Lobby swaps in a row that ended without a spot being mined in between; and whether the running swap is the hub routine. */
+    private int refreshStreak;
+    private boolean inHub;
     private int refreshesInARow;
     private long scootStart;
     private long scootProgressAt;
@@ -170,6 +173,8 @@ public final class Macro {
         this.planFails.clear();
         this.avoid.clear();
         this.warpFails = 0;
+        this.refreshStreak = 0;
+        this.inHub = false;
         this.warpsSinceSpot = 0;
         this.warping = false;
         this.resumeAt = 0L;
@@ -285,6 +290,12 @@ public final class Macro {
                 } else if (this.refreshing) {
                     this.refreshing = false;
                     this.lastSwitchAt = now;
+                    if (this.inHub) {
+                        this.inHub = false;
+                        this.refreshStreak = 0;
+                    } else {
+                        ++this.refreshStreak;
+                    }
                     Chat.msg("Lobby refreshed.");
                 }
             }
@@ -404,6 +415,7 @@ public final class Macro {
                 return;
             }
             Chat.msg("Still stuck after /" + cmd + " 3 times - doing the hub routine: /hub, then /warp galatea");
+            this.inHub = true;
             this.refreshing = true;
             this.lastSwitchAt = now;
             this.pendingCommand = "warp galatea";
@@ -424,6 +436,26 @@ public final class Macro {
         this.warpPos = p.position();
         this.warpLevel = mc.level;
         this.warpWaitUntil = now + 15000L;
+    }
+
+    /**
+     * The lobby swap. After {@code Config.hubAfter} refreshes in a row that found no spot to mine, the hub routine runs
+     * instead (/hub, then /warp galatea), which gives a really new lobby.
+     */
+    private void startSwap(Minecraft mc, LocalPlayer p, long now) {
+        this.refreshing = true;
+        this.lastSwitchAt = now;
+        if (Config.hubAfter > 0 && this.refreshStreak >= Config.hubAfter) {
+            Chat.msg("The lobby was refreshed " + this.refreshStreak + " times in a row without a spot - doing the hub routine: /hub, then /warp galatea");
+            this.refreshStreak = 0;
+            this.inHub = true;
+            this.pendingCommand = "warp galatea";
+            this.beginWarp(mc, p, now, "hub");
+            return;
+        }
+        this.inHub = false;
+        this.pendingCommand = Config.swapSecond.isBlank() ? null : Config.swapSecond;
+        this.beginWarp(mc, p, now, Config.swapFirst.isBlank() ? "warp galatea" : Config.swapFirst);
     }
 
     private int liveSpots(ClientLevel lv) {
@@ -453,10 +485,7 @@ public final class Macro {
             return true;
         }
         Chat.msg("Only " + n + " spots in this lobby (minimum " + Config.minSpots + ") - refreshing: /" + Config.swapFirst + ", then /" + Config.swapSecond);
-        this.refreshing = true;
-        this.lastSwitchAt = now;
-        this.pendingCommand = Config.swapSecond.isBlank() ? null : Config.swapSecond;
-        this.beginWarp(mc, p, now, Config.swapFirst.isBlank() ? "warp galatea" : Config.swapFirst);
+        this.startSwap(mc, p, now);
         return true;
     }
 
@@ -516,10 +545,7 @@ public final class Macro {
             if (++this.idleStrikes >= 1) {
                 this.idleStrikes = 0;
                 Chat.msg("No spot in view for " + Config.noSpotSeconds + " s - swapping lobby: /" + Config.swapFirst + ", then /" + Config.swapSecond);
-                this.refreshing = true;
-                this.lastSwitchAt = now;
-                this.pendingCommand = Config.swapSecond.isBlank() ? null : Config.swapSecond;
-                this.beginWarp(mc, p, now, Config.swapFirst.isBlank() ? "warp galatea" : Config.swapFirst);
+                this.startSwap(mc, p, now);
                 return;
             }
             this.stuckWarp(mc, p, now, "No spot in view and not moving for " + Config.stuckSeconds + " s");
@@ -1145,6 +1171,7 @@ public final class Macro {
             this.nukeLast.remove(s);
             if (SpotScanner.SPOTS.containsKey(s)) {
                 ++this.spotsDone;
+            this.refreshStreak = 0;
                 this.warpsSinceSpot = 0;
                 this.refreshesInARow = 0;
                 Chat.log("Spot " + s.toShortString() + " collected");
@@ -1196,6 +1223,7 @@ public final class Macro {
         if (strings || broken || this.lastFloorDrop >= this.digAt) {
             mc.gameMode.stopDestroyBlock();
             ++this.spotsDone;
+            this.refreshStreak = 0;
             this.warpsSinceSpot = 0;
             Chat.log("Spot " + spot.toShortString() + " collected (" + (broken ? "block broken" : (strings ? "strings gone" : "floor drop message")) + ", " + (now - this.digAt) + " ms)");
             this.planFails.remove(spot);
