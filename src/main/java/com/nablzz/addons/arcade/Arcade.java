@@ -12,9 +12,9 @@ import net.minecraft.client.gui.screens.Screen;
 import org.lwjgl.glfw.GLFW;
 
 /**
- * The secret arcade: while a macro is running, the arrow keys Up Up Down Down Left Right Left Right (each within 2 s of
- * the last) open a menu of mini games. The macro keeps running behind it: the screens implement {@link Marker}, which
- * the macros treat as "not a pause".
+ * The secret arcade: in the game (macro or not), the arrow keys Up Up Down Down Left Right Left Right (each within 2 s of
+ * the last), or the command /arcade, open a menu of mini games. A macro keeps running behind it: the screens implement
+ * {@link Marker}, which the macros treat as "not a pause".
  */
 public final class Arcade {
     private Arcade() {}
@@ -44,6 +44,12 @@ public final class Arcade {
                     InputConstants.Type.KEYSYM, glfw[i], KeyMapping.Category.MISC));
         }
         ClientTickEvents.START_CLIENT_TICK.register(Arcade::tick);
+        net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback.EVENT.register((dispatcher, ctx) ->
+                dispatcher.register(com.mojang.brigadier.builder.LiteralArgumentBuilder.<net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource>literal("arcade").executes(c -> {
+                    Minecraft m = Minecraft.getInstance();
+                    m.execute(() -> m.setScreen(new ArcadeMenu())); // after the chat screen has closed
+                    return 1;
+                })));
     }
 
     private static boolean anyRunning() {
@@ -88,7 +94,7 @@ public final class Arcade {
 
     private static void tick(Minecraft mc) {
         track(mc);
-        boolean active = mc.player != null && mc.screen == null && anyRunning();
+        boolean active = mc.player != null && mc.screen == null;
         for (int k = 0; k < 4; k++) {
             while (KEYS[k].consumeClick()) {
                 if (!active) {
@@ -113,7 +119,7 @@ public final class Arcade {
         }
         if (pos == CODE.length) {
             pos = 0;
-            Notify.msg("Arcade opened. Your macro keeps running.");
+            if (anyRunning()) Notify.msg("Arcade opened. Your macro keeps running.");
             mc.setScreen(new ArcadeMenu());
         }
     }
