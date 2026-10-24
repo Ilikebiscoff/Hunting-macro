@@ -39,6 +39,25 @@ final class Scores {
         }
     }
 
+    static int getInt(String key, int def) {
+        load();
+        try {
+            return Integer.parseInt(P.getProperty(key, "" + def).trim());
+        } catch (NumberFormatException e) {
+            return def;
+        }
+    }
+
+    static void putInt(String key, int value) {
+        load();
+        P.setProperty(key, "" + value);
+        try (OutputStream out = Files.newOutputStream(file())) {
+            P.store(out, "Nablzz Addons arcade best scores");
+        } catch (IOException ignored) {
+            // not saved
+        }
+    }
+
     /** Stores the score when it beats the best one. True for a new record. */
     static boolean submit(String game, int score) {
         load();

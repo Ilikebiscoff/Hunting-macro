@@ -25,11 +25,11 @@ final class GameScreen extends Screen implements Arcade.Marker {
     }
 
     private int fw() {
-        return Math.min(width - 40, 440);
+        return Math.min(width - 24, 470);
     }
 
     private int fh() {
-        return Math.min(height - 110, 270);
+        return Math.max(120, Math.min(height - 66, 300));
     }
 
     private int fx() {
@@ -37,7 +37,7 @@ final class GameScreen extends Screen implements Arcade.Marker {
     }
 
     private int fy() {
-        return (height - fh()) / 2 + 6;
+        return Math.max(36, (height - fh()) / 2 + 2);
     }
 
     @Override
@@ -62,7 +62,7 @@ final class GameScreen extends Screen implements Arcade.Marker {
         }
 
         Ui.text(g, game.name(), fx, fy - 26, Ui.TEXT);
-        Ui.textR(g, "Score " + score + "   Best " + Math.max(score, Scores.best(game.name())) + (record ? "  NEW!" : ""), fx + fw, fy - 26, Ui.WARN);
+        Ui.textR(g, game.scoreName() + " " + score + "   Best " + Math.max(score, Scores.best(game.name())) + (record ? "  NEW!" : ""), fx + fw, fy - 26, Ui.WARN);
         Ui.textC(g, "Macro: " + ArcadeMenu.macroLine(), width / 2, fy - 14, Ui.GOOD);
         Ui.rrb(g, fx - 2, fy - 2, fw + 4, fh + 4, 6, 0xFF0B0D12, Ui.LINE);
         game.render(g, fx, fy, mx - fx, my - fy);

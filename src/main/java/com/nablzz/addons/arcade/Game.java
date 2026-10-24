@@ -25,6 +25,11 @@ interface Game {
     default void keyUp(int key) {
     }
 
+    /** What {@link #score()} is called in the header ("Score", "Chips"). */
+    default String scoreName() {
+        return "Score";
+    }
+
     /** Score of the current round (the best one is kept between sessions). */
     int score();
 
