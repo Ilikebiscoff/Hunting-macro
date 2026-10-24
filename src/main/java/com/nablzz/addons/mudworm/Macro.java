@@ -202,6 +202,16 @@ public final class Macro {
         }
     }
 
+    /** Sets the HUD numbers back to zero (time, spots, drops, shards, etherwarps). A running macro keeps running. */
+    public void resetStats() {
+        this.spotsDone = 0;
+        this.warps = 0;
+        this.floorDrops = 0;
+        this.shards = 0;
+        this.runMs = 0L;
+        this.runStart = System.currentTimeMillis();
+    }
+
     public long totalMs() {
         return this.runMs + (this.running ? System.currentTimeMillis() - this.runStart : 0L);
     }

@@ -82,6 +82,11 @@ public final class MudwormMacro implements Feature {
                 Chat.msg(M.status() + " | spots known: " + SpotScanner.SPOTS.size() + " | sites: " + SpotScanner.SITES.size() + " | done: " + MudwormMacro.M.spotsDone + " | warps: " + MudwormMacro.M.warps);
                 return 1;
             }));
+            root.then(MudwormMacro.lit("reset").executes(c -> {
+                M.resetStats();
+                Chat.msg("Status panel reset: time, spots, drops and etherwarps are back to 0.");
+                return 1;
+            }));
             root.then(MudwormMacro.lit("spots").executes(c -> {
                 if (SpotScanner.SPOTS.isEmpty()) {
                     Chat.msg("No spots in sight.");
@@ -291,7 +296,7 @@ public final class MudwormMacro implements Feature {
     }
 
     private static int help() {
-        for (String s : List.of("/mudworm start | stop | toggle (key K)", "/mudworm gui (opens the settings) | status | spots | dev (copies a diagnostic report)", "/mudworm esp | hud | debug | strict | failsafe", "/mudworm stuckwarp | stuckcmd <command> | stucktime <seconds>", "/mudworm range <10-61> | ethercost <blocks>", "/mudworm area marsh | area here <radius>", "/mudworm axe (takes the item in your hand) | axe off | axe name <text>  (use an axe for mining spots)", "/mudworm minspots <n> | refreshcooldown <seconds>  (fewer than n spots in the lobby: /is then /warp murk, 0 = off)", "/mudworm maxdist <blocks>  (spots farther than this are never targeted, default 120)", "/mudworm scoottime <seconds> | scoot <blocks>  (walk to spots this close with WASD, 0 = off)", "/mudworm hopdelay <ms>  (extra wait before each teleport, default 250)", "/mudworm yband <below> <above>  (how far hops may stray up/down from the way to the spot)", "/mudworm blacklist | blacklist clear", "/mudworm sites clear | reload")) {
+        for (String s : List.of("/mudworm start | stop | toggle (key K)", "/mudworm gui (opens the settings) | status | spots | reset (zero the status panel) | dev (copies a diagnostic report)", "/mudworm esp | hud | debug | strict | failsafe", "/mudworm stuckwarp | stuckcmd <command> | stucktime <seconds>", "/mudworm range <10-61> | ethercost <blocks>", "/mudworm area marsh | area here <radius>", "/mudworm axe (takes the item in your hand) | axe off | axe name <text>  (use an axe for mining spots)", "/mudworm minspots <n> | refreshcooldown <seconds>  (fewer than n spots in the lobby: /is then /warp murk, 0 = off)", "/mudworm maxdist <blocks>  (spots farther than this are never targeted, default 120)", "/mudworm scoottime <seconds> | scoot <blocks>  (walk to spots this close with WASD, 0 = off)", "/mudworm hopdelay <ms>  (extra wait before each teleport, default 250)", "/mudworm yband <below> <above>  (how far hops may stray up/down from the way to the spot)", "/mudworm blacklist | blacklist clear", "/mudworm sites clear | reload")) {
             Chat.msg(s);
         }
         return 1;
@@ -396,6 +401,7 @@ public final class MudwormMacro implements Feature {
                 {clock(M.totalMs()), "Run time"},
         });
         ui.note("Hypixel does not allow macros: using this can get your account banned.");
+        ui.confirmButton("Reset the numbers", "Sets the time, spots done, floor drops, shards and etherwarps (status panel and these tiles) back to zero. Same as /mudworm reset.", "Reset", M::resetStats);
         ui.button("Copy diagnostic report", "Copies what the macro sees (hotbar, spots, terrain, the planner) to the clipboard and saves it in the config folder.", "Copy", false,
                 () -> Dev.run(Minecraft.getInstance()));
 
