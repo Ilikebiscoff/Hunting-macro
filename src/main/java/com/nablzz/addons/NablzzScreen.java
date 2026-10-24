@@ -242,6 +242,11 @@ public class NablzzScreen extends Screen {
             add(new NoteRow(text));
         }
 
+        /** A table: column headers, relative column widths, right-aligned columns, the text for no lines, and the lines. */
+        public void table(String[] headers, double[] weights, boolean[] right, String empty, Supplier<List<TableLine>> lines) {
+            add(new TableRow(headers, weights, right, empty, lines));
+        }
+
         /** A text box with an Add button. */
         public void add(String label, String hint, String placeholder, String buttonLabel, Consumer<String> action) {
             add(new AddRow(label, hint, placeholder, buttonLabel, action));
@@ -1056,6 +1061,96 @@ public class NablzzScreen extends Screen {
             int fw = (int) (shown * (bw - 2));
             if (fw > 0) Ui.rr(g, bx + 1, by + 1, Math.max(4, fw), 12, 3, Ui.mix(Ui.accent, 0xFF000000, 0.25f));
             Ui.textC(g, text.get(), bx + bw / 2, by + 3, Ui.TEXT);
+        }
+    }
+
+    /** One line of a {@link Builder#table}: the cell texts, an optional colour per cell (0 = default), and a tooltip for the hint bar. */
+    public record TableLine(String[] cells, int[] colors, String tip) {
+        public TableLine(String[] cells, int color, String tip) {
+            this(cells, fillColor(cells.length, color), tip);
+        }
+
+        private static int[] fillColor(int n, int c) {
+            int[] a = new int[n];
+            java.util.Arrays.fill(a, c);
+            return a;
+        }
+    }
+
+    /** A table with a header row; the lines come from a supplier (called every frame, so keep it cheap). */
+    private final class TableRow extends Row {
+        static final int HEAD_H = 15, LINE_H = 13;
+        final String[] headers;
+        final double[] weights;
+        final boolean[] right;
+        final String empty;
+        final Supplier<List<TableLine>> source;
+        List<TableLine> cur = List.of();
+
+        TableRow(String[] headers, double[] weights, boolean[] right, String empty, Supplier<List<TableLine>> source) {
+            super("", "");
+            this.headers = headers;
+            this.weights = weights;
+            this.right = right;
+            this.empty = empty;
+            this.source = source;
+        }
+
+        @Override
+        void prepare(int innerW) {
+            cur = source.get();
+            h = HEAD_H + Math.max(1, cur.size()) * LINE_H + 6;
+        }
+
+        @Override
+        boolean hoverable() {
+            return false;
+        }
+
+        private int[] columns() {
+            double total = 0;
+            for (double d : weights) total += d;
+            int[] xs = new int[weights.length + 1];
+            double acc = 0;
+            for (int i = 0; i < weights.length; i++) {
+                xs[i] = x + (int) Math.round(acc / total * w);
+                acc += weights[i];
+            }
+            xs[weights.length] = x + w;
+            return xs;
+        }
+
+        private void cell(GuiGraphicsExtractor g, String text, int i, int[] xs, int ty, int color) {
+            int cw = xs[i + 1] - xs[i] - 6;
+            String t = Ui.fit(text == null ? "" : text, cw);
+            if (right[i]) Ui.textR(g, t, xs[i + 1] - 4, ty, color);
+            else Ui.text(g, t, xs[i] + 2, ty, color);
+        }
+
+        @Override
+        void draw(GuiGraphicsExtractor g, int mx, int my, boolean hovered) {
+            int[] xs = columns();
+            for (int i = 0; i < headers.length; i++) cell(g, headers[i], i, xs, y + 3, Ui.DIM);
+            Ui.fill(g, x, y + HEAD_H - 2, w, 1, Ui.LINE);
+            if (cur.isEmpty()) {
+                Ui.text(g, empty, x + 2, y + HEAD_H + 2, Ui.MUTED);
+                return;
+            }
+            for (int r = 0; r < cur.size(); r++) {
+                TableLine ln = cur.get(r);
+                int ly = y + HEAD_H + r * LINE_H;
+                boolean over = Ui.in(mx, my, x, ly, w, LINE_H) && Ui.in(mx, my, vx, vy, vw, vh);
+                if (over) {
+                    Ui.fill(g, x, ly, w, LINE_H, Ui.withAlpha(0xFFFFFF, 14));
+                    if (ln.tip() != null && !ln.tip().isEmpty()) hint = ln.tip();
+                } else if (r % 2 == 1) {
+                    Ui.fill(g, x, ly, w, LINE_H, Ui.withAlpha(0xFFFFFF, 6));
+                }
+                for (int i = 0; i < ln.cells().length && i < headers.length; i++) {
+                    int c = ln.colors() != null && i < ln.colors().length && ln.colors()[i] != 0 ? ln.colors()[i] : Ui.TEXT;
+                    cell(g, ln.cells()[i], i, xs, ly + 2, c);
+                }
+            }
         }
     }
 
