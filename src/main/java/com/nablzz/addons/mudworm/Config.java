@@ -57,12 +57,34 @@ public final class Config {
     public static boolean useAxe = false;
     public static String axeName = "Helix Chopper";
     public static int hopDelayMs = 250;
+    /** After swapping to the axe, wait this long (ms) before the first hit so the server has really equipped it. */
+    public static int axeEquipMs = 350;
     public static int cacheChunks = 7;
     public static int areaMinX = -708;
     public static int areaMaxX = -603;
     public static int areaMinZ = -46;
     public static int areaMaxZ = 77;
+    /** Torrhus Canyon mode: the lobby swap, hub routine and stuck command use {@link #canyonCmd}, and the patrol box is the canyon one. */
+    public static boolean canyon = false;
+    public static String canyonCmd = "warp canyon";
+    /** Patrol box of the canyon (all zero = not set yet; set around you when the macro starts in canyon mode). */
+    public static int canyonMinX, canyonMaxX, canyonMinZ, canyonMaxZ;
     public static int patrolStep = 28;
+
+    public static boolean canyonSet() {
+        return canyonMaxX > canyonMinX && canyonMaxZ > canyonMinZ;
+    }
+
+    /** The patrol box in use: the canyon one in canyon mode (once it is set), else the marsh one. */
+    public static int pMinX() { return canyon && canyonSet() ? canyonMinX : areaMinX; }
+    public static int pMaxX() { return canyon && canyonSet() ? canyonMaxX : areaMaxX; }
+    public static int pMinZ() { return canyon && canyonSet() ? canyonMinZ : areaMinZ; }
+    public static int pMaxZ() { return canyon && canyonSet() ? canyonMaxZ : areaMaxZ; }
+
+    /** The command that follows /hub (or /warp galatea) when the lobby is swapped. */
+    public static String swapSecondNow() { return canyon ? canyonCmd : swapSecond; }
+    public static String hubSecondNow() { return canyon ? canyonCmd : "warp galatea"; }
+    public static String stuckCommandNow() { return canyon ? canyonCmd : stuckCommand; }
     public static int scanMinY = 60;
     public static int scanMaxY = 200;
 
@@ -117,6 +139,13 @@ public final class Config {
         axeName = p.getProperty("axeName", axeName).trim();
         hopDelayMs = Math.max(0, Math.min(5000, Config.i(p, "hopDelay", hopDelayMs)));
         cacheChunks = Math.max(2, Math.min(12, Config.i(p, "cacheChunks", cacheChunks)));
+        axeEquipMs = Math.max(0, Math.min(2000, Config.i(p, "axeEquipMs", axeEquipMs)));
+        canyon = Boolean.parseBoolean(p.getProperty("canyon", "" + canyon).trim());
+        canyonCmd = p.getProperty("canyonCmd", canyonCmd).trim();
+        canyonMinX = Config.i(p, "canyonMinX", canyonMinX);
+        canyonMaxX = Config.i(p, "canyonMaxX", canyonMaxX);
+        canyonMinZ = Config.i(p, "canyonMinZ", canyonMinZ);
+        canyonMaxZ = Config.i(p, "canyonMaxZ", canyonMaxZ);
         areaMinX = Config.i(p, "areaMinX", areaMinX);
         areaMaxX = Config.i(p, "areaMaxX", areaMaxX);
         areaMinZ = Config.i(p, "areaMinZ", areaMinZ);
@@ -165,6 +194,13 @@ public final class Config {
         p.setProperty("axeName", axeName);
         p.setProperty("hopDelay", "" + hopDelayMs);
         p.setProperty("cacheChunks", "" + cacheChunks);
+        p.setProperty("axeEquipMs", "" + axeEquipMs);
+        p.setProperty("canyon", "" + canyon);
+        p.setProperty("canyonCmd", canyonCmd);
+        p.setProperty("canyonMinX", "" + canyonMinX);
+        p.setProperty("canyonMaxX", "" + canyonMaxX);
+        p.setProperty("canyonMinZ", "" + canyonMinZ);
+        p.setProperty("canyonMaxZ", "" + canyonMaxZ);
         p.setProperty("areaMinX", "" + areaMinX);
         p.setProperty("areaMaxX", "" + areaMaxX);
         p.setProperty("areaMinZ", "" + areaMinZ);

@@ -157,7 +157,8 @@ final class Dev {
         b.append("\n== Settings ==\n");
         b.append("baseRange ").append(Config.baseRange).append("  rangeMargin ").append(Config.rangeMargin).append("  etherCost ").append(Config.etherCost).append("  strictRay ").append(Config.strictRay).append("  coneDeg ").append(Config.coneDeg).append("  reach ").append(Config.reach).append('\n');
         b.append("stuck: ").append(Config.unstuckWarp).append(" after ").append(Config.stuckSeconds).append(" s -> /").append(Config.stuckCommand).append("  cacheChunks ").append(Config.cacheChunks).append("  scanY ").append(Config.scanMinY).append("..").append(Config.scanMaxY).append('\n');
-        b.append("patrol area x ").append(Config.areaMinX).append("..").append(Config.areaMaxX).append(" z ").append(Config.areaMinZ).append("..").append(Config.areaMaxZ).append(" step ").append(Config.patrolStep).append("  failsafe(foreign teleport) ").append(Config.stopOnForeignTeleport).append('\n');
+        b.append("canyon mode ").append(Config.canyon).append(" (/").append(Config.canyonCmd).append(")\n");
+        b.append("patrol area x ").append(Config.pMinX()).append("..").append(Config.pMaxX()).append(" z ").append(Config.pMinZ()).append("..").append(Config.pMaxZ()).append(" step ").append(Config.patrolStep).append("  failsafe(foreign teleport) ").append(Config.stopOnForeignTeleport).append('\n');
         if (p.getY() < (double)Config.scanMinY || p.getY() > (double)Config.scanMaxY) {
             problems.add("your Y (" + (int)p.getY() + ") is outside the scanned range " + Config.scanMinY + ".." + Config.scanMaxY);
         }

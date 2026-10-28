@@ -96,6 +96,7 @@ public final class Macro {
     private long etherOffUntil;
     private long noManaUntil;
     private long nextSlotChange;
+    private long axeReadyAt;
     private long digAt;
     private long digSince;
     private long lastSwing;
@@ -183,6 +184,15 @@ public final class Macro {
         if (Macro.aotvSlot(mc.player) < 0) {
             Chat.msg("Put an Aspect of the Void with Ether Transmission in your hotbar first.");
             return;
+        }
+        if (Config.canyon && !Config.canyonSet()) {
+            int r = 60;
+            Config.canyonMinX = mc.player.getBlockX() - r;
+            Config.canyonMaxX = mc.player.getBlockX() + r;
+            Config.canyonMinZ = mc.player.getBlockZ() - r;
+            Config.canyonMaxZ = mc.player.getBlockZ() + r;
+            Config.save();
+            Chat.msg("Torrhus Canyon mode: no canyon patrol area was set, using a 120 x 120 box around you (change it in the Lobby tab).");
         }
         this.running = true;
         this.startLevel = mc.level;
@@ -442,7 +452,7 @@ public final class Macro {
     }
 
     private void stuckWarp(Minecraft mc, LocalPlayer p, long now, String reason) {
-        String cmd = Config.stuckCommand.trim();
+        String cmd = Config.stuckCommandNow().trim();
         if (cmd.startsWith("/")) {
             cmd = cmd.substring(1);
         }
@@ -456,11 +466,11 @@ public final class Macro {
                 this.stop(mc, "still stuck after " + Config.giveUpAfter + " lobby changes");
                 return;
             }
-            Chat.msg("Still stuck after /" + cmd + " " + Config.stuckHubAfter + " times - doing the hub routine: /hub, then /warp galatea");
+            Chat.msg("Still stuck after /" + cmd + " " + Config.stuckHubAfter + " times - doing the hub routine: /hub, then /" + Config.hubSecondNow());
             this.inHub = true;
             this.refreshing = true;
             this.lastSwitchAt = now;
-            this.pendingCommand = "warp galatea";
+            this.pendingCommand = Config.hubSecondNow();
             this.beginWarp(mc, p, now, "hub");
             return;
         }
@@ -503,15 +513,15 @@ public final class Macro {
         this.refreshing = true;
         this.lastSwitchAt = now;
         if (Config.hubAfter > 0 && this.refreshStreak >= Config.hubAfter) {
-            Chat.msg("The lobby was refreshed " + this.refreshStreak + " times in a row without a spot - doing the hub routine: /hub, then /warp galatea");
+            Chat.msg("The lobby was refreshed " + this.refreshStreak + " times in a row without a spot - doing the hub routine: /hub, then /" + Config.hubSecondNow());
             this.refreshStreak = 0;
             this.inHub = true;
-            this.pendingCommand = "warp galatea";
+            this.pendingCommand = Config.hubSecondNow();
             this.beginWarp(mc, p, now, "hub");
             return;
         }
         this.inHub = false;
-        this.pendingCommand = Config.swapSecond.isBlank() ? null : Config.swapSecond;
+        this.pendingCommand = Config.swapSecondNow().isBlank() ? null : Config.swapSecondNow();
         this.beginWarp(mc, p, now, Config.swapFirst.isBlank() ? "warp galatea" : Config.swapFirst);
     }
 
@@ -541,7 +551,7 @@ public final class Macro {
             this.stop(mc, "the last " + Config.giveUpAfter + " lobbies all had fewer than " + Config.minSpots + " spots - lower /mudworm minspots");
             return true;
         }
-        Chat.msg("Only " + n + " spots in this lobby (minimum " + Config.minSpots + ") - refreshing: /" + Config.swapFirst + ", then /" + Config.swapSecond);
+        Chat.msg("Only " + n + " spots in this lobby (minimum " + Config.minSpots + ") - refreshing: /" + Config.swapFirst + ", then /" + Config.swapSecondNow());
         this.startSwap(mc, p, now);
         return true;
     }
@@ -601,7 +611,7 @@ public final class Macro {
             this.idleSince = 0L;
             if (++this.idleStrikes >= 1) {
                 this.idleStrikes = 0;
-                Chat.msg("No spot in view for " + Config.noSpotSeconds + " s - swapping lobby: /" + Config.swapFirst + ", then /" + Config.swapSecond);
+                Chat.msg("No spot in view for " + Config.noSpotSeconds + " s - swapping lobby: /" + Config.swapFirst + ", then /" + Config.swapSecondNow());
                 this.startSwap(mc, p, now);
                 return;
             }
@@ -724,8 +734,8 @@ public final class Macro {
         }
         if (pts.isEmpty() || this.allVisited(pts)) {
             int y = p.blockPosition().getY();
-            for (int x = Config.areaMinX; x <= Config.areaMaxX; x += Config.patrolStep) {
-                for (int z = Config.areaMinZ; z <= Config.areaMaxZ; z += Config.patrolStep) {
+            for (int x = Config.pMinX(); x <= Config.pMaxX(); x += Config.patrolStep) {
+                for (int z = Config.pMinZ(); z <= Config.pMaxZ(); z += Config.patrolStep) {
                     pts.add(new BlockPos(x, y, z));
                 }
             }
@@ -1264,11 +1274,18 @@ public final class Macro {
         if (pick == null) {
             return;
         }
+        if (Config.useAxe && this.stage != Stage.WARP_PREP && this.stage != Stage.WARP_WAIT && (ax = Macro.slotByName(p, Config.axeName)) >= 0) {
+            if (p.getInventory().getSelectedSlot() != ax) { // just swapped from the Aspect of the Void: give the server time to equip the axe
+                p.getInventory().setSelectedSlot(ax);
+                this.axeReadyAt = now + (long)Config.axeEquipMs;
+                return;
+            }
+            if (now < this.axeReadyAt) {
+                return;
+            }
+        }
         this.nukeFirst.putIfAbsent(pick, now);
         this.nukeLast.put(pick, now);
-        if (Config.useAxe && this.stage != Stage.WARP_PREP && this.stage != Stage.WARP_WAIT && (ax = Macro.slotByName(p, Config.axeName)) >= 0 && p.getInventory().getSelectedSlot() != ax) {
-            p.getInventory().setSelectedSlot(ax);
-        }
         mc.gameMode.startDestroyBlock(pick, Direction.UP);
         p.swing(InteractionHand.MAIN_HAND);
         this.lastNukeTick = this.tickCount;
@@ -1293,6 +1310,10 @@ public final class Macro {
             return;
         }
         if (this.digTimedOut(mc, now)) {
+            return;
+        }
+        if (Config.useAxe && now < this.axeReadyAt) {
+            this.status = "Equipping the axe";
             return;
         }
         mc.gameMode.continueDestroyBlock(spot, Direction.UP);
@@ -1372,7 +1393,7 @@ public final class Macro {
             g = Pathfinder.Goal.spot(spot);
         } else {
             Vec3 me;
-            Vec3 c = new Vec3((double)(Config.areaMinX + Config.areaMaxX) / 2.0, p.getY(), (double)(Config.areaMinZ + Config.areaMaxZ) / 2.0);
+            Vec3 c = new Vec3((double)(Config.pMinX() + Config.pMaxX()) / 2.0, p.getY(), (double)(Config.pMinZ() + Config.pMaxZ()) / 2.0);
             if (c.distanceTo(me = p.position()) > 90.0) {
                 c = me.add(c.subtract(me).normalize().scale(90.0));
             }

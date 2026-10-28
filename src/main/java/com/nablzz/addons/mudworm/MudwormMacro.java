@@ -149,6 +149,43 @@ public final class MudwormMacro implements Feature {
                 Chat.msg("Hop cost: " + Config.etherCost);
                 return 1;
             })));
+            root.then(MudwormMacro.lit("canyon")
+                    .executes(c -> {
+                        Chat.msg("Torrhus Canyon mode is " + (Config.canyon ? "ON" : "off") + " (/mudworm canyon on|off|here <radius>|cmd <command>)");
+                        return 1;
+                    })
+                    .then(MudwormMacro.lit("on").executes(c -> {
+                        Config.canyon = true;
+                        Config.save();
+                        Chat.msg("Torrhus Canyon mode ON: lobby swaps end with /" + Config.canyonCmd + ".");
+                        return 1;
+                    }))
+                    .then(MudwormMacro.lit("off").executes(c -> {
+                        Config.canyon = false;
+                        Config.save();
+                        Chat.msg("Torrhus Canyon mode off: back to Moonglade Marsh.");
+                        return 1;
+                    }))
+                    .then(MudwormMacro.lit("cmd").then(RequiredArgumentBuilder.argument((String)"command", (ArgumentType)StringArgumentType.greedyString()).executes(c -> {
+                        Config.canyonCmd = StringArgumentType.getString((CommandContext)c, (String)"command").trim();
+                        Config.save();
+                        Chat.msg("Canyon warp command: /" + Config.canyonCmd);
+                        return 1;
+                    })))
+                    .then(MudwormMacro.lit("here").then(RequiredArgumentBuilder.argument((String)"radius", (ArgumentType)IntegerArgumentType.integer((int)10, (int)400)).executes(c -> {
+                        LocalPlayer pl = Minecraft.getInstance().player;
+                        if (pl == null) {
+                            return 0;
+                        }
+                        int r = IntegerArgumentType.getInteger((CommandContext)c, (String)"radius");
+                        Config.canyonMinX = pl.getBlockX() - r;
+                        Config.canyonMaxX = pl.getBlockX() + r;
+                        Config.canyonMinZ = pl.getBlockZ() - r;
+                        Config.canyonMaxZ = pl.getBlockZ() + r;
+                        Config.save();
+                        Chat.msg("Canyon patrol area: " + 2 * r + "x" + 2 * r + " around you.");
+                        return 1;
+                    }))));
             root.then(((LiteralArgumentBuilder)MudwormMacro.lit("area").then(MudwormMacro.lit("marsh").executes(c -> {
                 Config.areaMinX = -708;
                 Config.areaMaxX = -603;
@@ -307,7 +344,7 @@ public final class MudwormMacro implements Feature {
     }
 
     private static int help() {
-        for (String s : List.of("/mudworm start | stop | toggle (key K)", "/mudworm gui (opens the settings) | status | spots | stats (opens the statistics screen) | reset (zero the status panel) | dev (copies a diagnostic report)", "/mudworm esp | hud | debug | strict | failsafe", "/mudworm stuckwarp | stuckcmd <command> | stucktime <seconds>", "/mudworm range <10-61> | ethercost <blocks>", "/mudworm area marsh | area here <radius>", "/mudworm axe (takes the item in your hand) | axe off | axe name <text>  (use an axe for mining spots)", "/mudworm minspots <n> | refreshcooldown <seconds>  (fewer than n spots in the lobby: swap lobby, 0 = off)", "/mudworm hub <n>  (after n lobby refreshes in a row without a spot do /hub then /warp galatea, 0 = never; the other counts are in the Lobby tab)", "/mudworm maxdist <blocks>  (spots farther than this are never targeted, default 120)", "/mudworm scoottime <seconds> | scoot <blocks>  (walk to spots this close with WASD, 0 = off)", "/mudworm hopdelay <ms>  (extra wait before each teleport, default 250)", "/mudworm yband <below> <above>  (how far hops may stray up/down from the way to the spot)", "/mudworm blacklist | blacklist clear", "/mudworm sites clear | reload")) {
+        for (String s : List.of("/mudworm start | stop | toggle (key K)", "/mudworm gui (opens the settings) | status | spots | stats (opens the statistics screen) | reset (zero the status panel) | dev (copies a diagnostic report)", "/mudworm esp | hud | debug | strict | failsafe", "/mudworm stuckwarp | stuckcmd <command> | stucktime <seconds>", "/mudworm range <10-61> | ethercost <blocks>", "/mudworm area marsh | area here <radius>", "/mudworm canyon on|off|here <radius>|cmd <command>  (Torrhus Canyon mode: warps end with /warp canyon, own patrol box)", "/mudworm axe (takes the item in your hand) | axe off | axe name <text>  (use an axe for mining spots)", "/mudworm minspots <n> | refreshcooldown <seconds>  (fewer than n spots in the lobby: swap lobby, 0 = off)", "/mudworm hub <n>  (after n lobby refreshes in a row without a spot do /hub then /warp galatea, 0 = never; the other counts are in the Lobby tab)", "/mudworm maxdist <blocks>  (spots farther than this are never targeted, default 120)", "/mudworm scoottime <seconds> | scoot <blocks>  (walk to spots this close with WASD, 0 = off)", "/mudworm hopdelay <ms>  (extra wait before each teleport, default 250)", "/mudworm yband <below> <above>  (how far hops may stray up/down from the way to the spot)", "/mudworm blacklist | blacklist clear", "/mudworm sites clear | reload")) {
             Chat.msg(s);
         }
         return 1;
@@ -451,7 +488,15 @@ public final class MudwormMacro implements Feature {
         ui.dslider("Height difference", "Spots more than this many blocks above or below you are ignored.", 5, 300, 5, () -> Config.maxTargetHeight, v -> Config.maxTargetHeight = v, "%.0f blocks");
         ui.section("Mining a spot");
         ui.toggle("Use an axe", "Switch to the named hotbar item to mine spots (otherwise the Aspect of the Void in your hand is used).", () -> Config.useAxe, v -> Config.useAxe = v);
+        ui.islider("Axe equip wait", "After swapping to the axe, wait this long before the first hit so the server has really equipped it (fast teleports gave it too little time). Raise it if hits still land with the wrong item.", 0, 1500, () -> Config.axeEquipMs, v -> Config.axeEquipMs = v, " ms");
         ui.text("Axe name", "Part of the hotbar item name (not case sensitive). Or hold the axe and run /mudworm axe.", () -> Config.axeName, v -> Config.axeName = v, 150, "Helix Chopper");
+        ui.section("Torrhus Canyon");
+        ui.toggle("Torrhus Canyon mode", "Hunt mudworms in Torrhus Canyon instead of Moonglade Marsh: the lobby swap, hub routine and stuck command end with the canyon warp (below), and the patrol box is the canyon one (Lobby tab). Same as /mudworm canyon on|off.", () -> Config.canyon, v -> {
+            Config.canyon = v;
+            Config.save();
+        });
+        ui.text("Canyon warp command", "Without the slash.", () -> Config.canyonCmd, v -> Config.canyonCmd = v, 150, "warp canyon");
+
         ui.section("Close spots");
         ui.dslider("Walk range", "Spots this close are walked to with W/A/S/D instead of teleported to. 0 = off.", 0, 30, 1, () -> Config.scootRange, v -> Config.scootRange = v, "%.0f blocks");
         ui.dslider("Walk time", "Longest single walk before the not-moving timer starts again.", 0.2, 10, 0.2, () -> Config.scootSeconds, v -> Config.scootSeconds = v, "%.1f s");
@@ -463,6 +508,22 @@ public final class MudwormMacro implements Feature {
         ui.islider("East edge (X max)", "", -1500, 1500, () -> Config.areaMaxX, v -> Config.areaMaxX = v, "");
         ui.islider("North edge (Z min)", "", -1500, 1500, () -> Config.areaMinZ, v -> Config.areaMinZ = v, "");
         ui.islider("South edge (Z max)", "", -1500, 1500, () -> Config.areaMaxZ, v -> Config.areaMaxZ = v, "");
+        ui.section("Canyon patrol area");
+        ui.note("Used instead of the box above when Torrhus Canyon mode is on. Not set = a 120 x 120 box around you when the macro starts.");
+        ui.islider("Canyon west edge (X min)", "", -1500, 1500, () -> Config.canyonMinX, v -> Config.canyonMinX = v, "");
+        ui.islider("Canyon east edge (X max)", "", -1500, 1500, () -> Config.canyonMaxX, v -> Config.canyonMaxX = v, "");
+        ui.islider("Canyon north edge (Z min)", "", -1500, 1500, () -> Config.canyonMinZ, v -> Config.canyonMinZ = v, "");
+        ui.islider("Canyon south edge (Z max)", "", -1500, 1500, () -> Config.canyonMaxZ, v -> Config.canyonMaxZ = v, "");
+        ui.button("Canyon: around me", "Sets the canyon patrol box to 120 x 120 around where you stand.", "Set", false, () -> {
+            var pl = Minecraft.getInstance().player;
+            if (pl == null) return;
+            Config.canyonMinX = pl.getBlockX() - 60;
+            Config.canyonMaxX = pl.getBlockX() + 60;
+            Config.canyonMinZ = pl.getBlockZ() - 60;
+            Config.canyonMaxZ = pl.getBlockZ() + 60;
+            Config.save();
+        });
+        ui.section("Marsh patrol area");
         ui.button("Moonglade Marsh", "Sets the patrol area to Moonglade Marsh.", "Set", false, () -> {
             Config.areaMinX = -708;
             Config.areaMaxX = -603;
