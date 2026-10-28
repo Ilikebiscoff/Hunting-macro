@@ -6,6 +6,8 @@ import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
+import com.nablzz.addons.mudworm.Etherwarp;
+import com.nablzz.addons.mudworm.path.Cell;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
@@ -72,7 +74,7 @@ public class HuntController {
     private static final int LAVA_AROUND = 3;
     private static final double STUCK_RADIUS = 3.0;
 
-    private enum Phase { HUNT, HIT, GOLDEN, RETURN, RESCUE }
+    private enum Phase { HUNT, HIT, GOLDEN, RETURN, RESCUE, ETHER }
 
     public enum Golden { USE, HIT, OFF }
 
@@ -133,6 +135,16 @@ public class HuntController {
     public volatile int areaX1 = -44, areaX2 = 28, areaZ1 = -27, areaZ2 = 56, areaY1 = 36, areaY2 = 40;
     /** Sidebar text of the hunting area; leaving it sends us back to where we were 3 moves ago. */
     public volatile String zoneText = "Diamond Reserve";
+    /** Etherwarp (Aspect of the Void with Ether Transmission in the hotbar) to a far zombie instead of walking all the way. */
+    public volatile boolean etherOn = true;
+    /** Horizontal distance (blocks) to the nearest zombie from which a warp is used. */
+    public volatile int etherMinDist = 32;
+    private Etherwarp.Shot ethShot;
+    private Vec3 ethFrom;
+    private long ethSince, ethSneakSince, ethReadySince, ethClickAt, ethBlockedAt, ethSlotAt, ethOffUntil, ethLastAt, ethNoPlanUntil;
+    private int ethFails;
+    private boolean ethClicked;
+    private final Set<Long> ethAvoid = new HashSet<>();
     public volatile boolean zoneGuard = true;
     /** Command run when stuck / nothing to hunt for {@link #idleWarpMs} (empty = just re-plan). */
     public volatile String warpCmd = "";
@@ -351,6 +363,7 @@ public class HuntController {
         if (!running || raw == null) return;
         String t = raw.replaceAll("\u00a7.", "");
         String low = t.toLowerCase(Locale.ROOT);
+        if (phase == Phase.ETHER && low.contains("blocks in the way")) ethBlockedAt = System.currentTimeMillis();
         if (low.contains("ability is now ready")) { // the game says the item can be used again
             abilityReadyAt = 0;
             abilityReadyFlag = true;
@@ -482,6 +495,10 @@ public class HuntController {
         anchor = null;
         warpPauseUntil = 0;
         idleSince = 0;
+        ethShot = null;
+        ethFails = 0;
+        ethOffUntil = ethNoPlanUntil = ethLastAt = 0;
+        ethAvoid.clear();
         moves.clear();
         returnTo = null;
         outChecks = 0;
@@ -533,6 +550,7 @@ public class HuntController {
             case GOLDEN -> goldenStep(mc, p, now);
             case RETURN -> returnStep(mc, p, now);
             case RESCUE -> rescueStep(mc, p, now);
+            case ETHER -> etherStep(mc, p, now);
         }
         if (phase == Phase.HUNT || phase == Phase.RETURN) stuckCheck(mc, p, now);
         if (phase == Phase.HUNT && !holePending) noPathCheck(mc, p, now);
@@ -1262,7 +1280,131 @@ public class HuntController {
             setPhase(Phase.HIT, now);
             return;
         }
+        if (tryEther(mc, p, now, cands.get(0))) return;
         navigate(mc, p, now, cands);
+    }
+
+    // ---- ETHER: warp to a far zombie ---------------------------------------------------------------------
+
+    /** The nearest zombie is far away: plan a warp to a block next to it and switch to the ETHER phase. */
+    private boolean tryEther(Minecraft mc, LocalPlayer p, long now, Entity far) {
+        if (!etherOn || now < ethOffUntil || now < ethNoPlanUntil || now - ethLastAt < 1500) return false;
+        if (hDist(p.position(), far.position()) < etherMinDist || !p.onGround()) return false;
+        int slot = EtherHop.slot(p);
+        if (slot < 0) {
+            ethNoPlanUntil = now + 15_000; // no Aspect of the Void with Ether Transmission: just walk
+            return false;
+        }
+        ethNoPlanUntil = now + 2000; // a failed search is not repeated every tick
+        Etherwarp.Shot shot = EtherHop.plan(mc.level, p, slot, far.position(), ethAvoid, this::etherAllowed);
+        if (shot == null) return false;
+        ethShot = shot;
+        ethSince = now;
+        ethSneakSince = ethReadySince = ethClickAt = 0;
+        ethClicked = false;
+        leg = null;
+        legCursor = null;
+        aim.retarget();
+        Chat.msg(String.format(Locale.ROOT, "Zombie %.0f blocks away - etherwarp to %s.", hDist(p.position(), far.position()), shot.landing().toShortString()));
+        setPhase(Phase.ETHER, now);
+        return true;
+    }
+
+    /** Landing spots must be inside the scan box (when it is on), so a warp never takes us out of the zone. */
+    private boolean etherAllowed(BlockPos feet) {
+        if (!areaOn) return true;
+        return feet.getX() >= Math.min(areaX1, areaX2) && feet.getX() <= Math.max(areaX1, areaX2)
+                && feet.getZ() >= Math.min(areaZ1, areaZ2) && feet.getZ() <= Math.max(areaZ1, areaZ2)
+                && feet.getY() >= Math.min(areaY1, areaY2) - 3 && feet.getY() <= Math.max(areaY1, areaY2) + 4;
+    }
+
+    private void etherEnd(Minecraft mc, long now, boolean ok, String why) {
+        mc.options.keyShift.setDown(false);
+        ethLastAt = now;
+        if (ok) {
+            ethFails = 0;
+            ethAvoid.clear();
+        } else {
+            if (ethShot != null) ethAvoid.add(ethShot.landing().asLong());
+            if (++ethFails >= 3) {
+                ethFails = 0;
+                ethOffUntil = now + 30_000;
+                Chat.msg("Etherwarp failed 3 times (" + why + ") - walking for 30 s.");
+            } else {
+                Chat.msg("Etherwarp failed: " + why);
+            }
+        }
+        ethShot = null;
+        planDirty = true;
+        leg = null;
+        legCursor = null;
+        setPhase(Phase.HUNT, now);
+    }
+
+    private void etherStep(Minecraft mc, LocalPlayer p, long now) {
+        releaseMovement(mc);
+        if (ethShot == null) {
+            setPhase(Phase.HUNT, now);
+            return;
+        }
+        int slot = EtherHop.slot(p);
+        if (slot < 0) {
+            etherEnd(mc, now, false, "the Aspect of the Void is gone from the hotbar");
+            return;
+        }
+        if (now - ethSince > 6000) {
+            etherEnd(mc, now, false, "could not line up in 6 s");
+            return;
+        }
+        if (!ethClicked) {
+            if (p.getInventory().getSelectedSlot() != slot) {
+                if (now - ethSlotAt >= 150) {
+                    p.getInventory().setSelectedSlot(slot);
+                    ethSlotAt = now;
+                }
+                return;
+            }
+            mc.options.keyShift.setDown(true);
+            if (p.isShiftKeyDown()) {
+                if (ethSneakSince == 0) ethSneakSince = now;
+            } else {
+                ethSneakSince = 0;
+            }
+            aim.setTarget(ethShot.yaw(), ethShot.pitch(), 2500f, 1.6f);
+            boolean still = p.onGround() && p.getDeltaMovement().horizontalDistanceSqr() < 1.0E-4;
+            boolean sneakOk = ethSneakSince != 0 && now - ethSneakSince >= 200 && now - ethSlotAt >= 200;
+            if (!(sneakOk && still && aim.settled(p, 0.25f))) {
+                ethReadySince = 0;
+                return;
+            }
+            if (ethReadySince == 0) ethReadySince = now + 60 + (long) (Math.random() * 120); // short human pause
+            if (now < ethReadySince) return;
+            // the ray from the real crosshair must still end on a block we can stand on, near the planned one
+            Cell.Live live = new Cell.Live(mc.level);
+            Vec3 eye = new Vec3(p.getX(), p.getY() + Etherwarp.SNEAK_EYE, p.getZ());
+            double range = Etherwarp.range(p.getInventory().getItem(slot));
+            BlockPos hit = Etherwarp.predict(live, eye, p.getYRot(), p.getXRot(), range);
+            if (hit == null || hit.distSqr(ethShot.target()) > 4.0 || !Etherwarp.coneSafe(live, eye, p.getYRot(), p.getXRot(), range)) {
+                ethReadySince = 0;
+                aim.retarget();
+                return; // aim a little off: keep trying until the timeout
+            }
+            ethFrom = p.position();
+            ethClickAt = now;
+            ethClicked = true;
+            ethBlockedAt = 0;
+            mc.gameMode.useItem(p, InteractionHand.MAIN_HAND);
+            return;
+        }
+        if (p.position().distanceTo(ethFrom) > 1.5) { // teleported
+            etherEnd(mc, now, true, "");
+            return;
+        }
+        if (ethBlockedAt >= ethClickAt && ethBlockedAt != 0) {
+            etherEnd(mc, now, false, "the server said there are blocks in the way");
+        } else if (now - ethClickAt > 1500) {
+            etherEnd(mc, now, false, "nothing happened after the click (mana? item?)");
+        }
     }
 
     private static Vec3 centre(Entity e) {
@@ -1868,6 +2010,7 @@ public class HuntController {
             case GOLDEN -> "Golden axe";
             case RETURN -> "Back to the zone";
             case RESCUE -> "Lava rescue";
+            case ETHER -> "Etherwarp";
         };
     }
 
@@ -2251,7 +2394,7 @@ public class HuntController {
     private void releaseKeys(Minecraft mc) {
         for (KeyMapping k : new KeyMapping[]{mc.options.keyUp, mc.options.keySprint,
                 mc.options.keyJump, mc.options.keyAttack, mc.options.keyDown,
-                mc.options.keyLeft, mc.options.keyRight}) {
+                mc.options.keyLeft, mc.options.keyRight, mc.options.keyShift}) {
             k.setDown(false);
         }
     }

@@ -424,6 +424,29 @@ public class MinerZombieHunting implements Feature {
                         Chat.msg("Recovery command: " + (controller.warpCmd.isBlank() ? "none" : "/" + controller.warpCmd));
                         return 1;
                     })));
+            root.then(lit("ether")
+                    .executes(c -> {
+                        Chat.msg("Etherwarp to far zombies: " + (controller.etherOn ? "ON" : "OFF") + ", from " + controller.etherMinDist + " blocks (/hunt ether on|off|<blocks>)");
+                        return 1;
+                    })
+                    .then(lit("on").executes(c -> {
+                        controller.etherOn = true;
+                        Config.save(controller);
+                        Chat.msg("Etherwarp ON (needs an Aspect of the Void with Ether Transmission in the hotbar).");
+                        return 1;
+                    }))
+                    .then(lit("off").executes(c -> {
+                        controller.etherOn = false;
+                        Config.save(controller);
+                        Chat.msg("Etherwarp OFF.");
+                        return 1;
+                    }))
+                    .then(arg("blocks", IntegerArgumentType.integer(20, 80)).executes(c -> {
+                        controller.etherMinDist = IntegerArgumentType.getInteger(c, "blocks");
+                        Config.save(controller);
+                        Chat.msg("Etherwarp from " + controller.etherMinDist + " blocks.");
+                        return 1;
+                    })));
             root.then(lit("parkour")
                     .then(lit("on").executes(c -> {
                         Planner.parkour = true;
@@ -477,6 +500,7 @@ public class MinerZombieHunting implements Feature {
         Chat.msg(" /hunt hits <n> [gapTicks] - hits on each zombie before the black hole (default 2, 3 ticks apart)");
         Chat.msg(" /hunt range <blocks> - how far to look for zombies (default 80; pathing reaches ~44)");
         Chat.msg(" /hunt warp <command|off> - command to run when stuck or nothing to hunt (e.g. warp dr)");
+        Chat.msg(" /hunt ether [on|off|<blocks>] - etherwarp (Aspect of the Void) to a zombie that is at least that far away instead of walking (default ON, 32)");
         Chat.msg(" /hunt path - last pathfinder stats, /hunt highlight - toggle overlay, /hunt parkour on|off");
     }
 
@@ -644,6 +668,9 @@ public class MinerZombieHunting implements Feature {
             c.areaZ2 = p.getBlockZ() + 40;
             ui.markDirty();
         });
+        ui.section("Etherwarp");
+        ui.toggle("Etherwarp to far zombies", "When the nearest zombie is far away, warp next to it with an Aspect of the Void (Ether Transmission) from the hotbar instead of walking. Needs mana; without the item it just walks.", () -> c.etherOn, v -> c.etherOn = v);
+        ui.islider("Warp from distance", "Use a warp when the nearest zombie is at least this many blocks away (horizontal).", 20, 80, () -> c.etherMinDist, v -> c.etherMinDist = v, " blocks");
         ui.section("Zone guard");
         ui.toggle("Stay in the zone", "If the sidebar shows another area, walk back to where you were 3 moves ago.", () -> c.zoneGuard, v -> c.zoneGuard = v);
         ui.text("Zone name", "Sidebar text of the hunting area.", () -> c.zoneText, v -> c.zoneText = v, 150, "Diamond Reserve");

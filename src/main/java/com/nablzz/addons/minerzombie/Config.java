@@ -96,6 +96,8 @@ public final class Config {
         p.setProperty("liftZ", "" + c.liftZ);
         p.setProperty("liftNpc", c.liftNpc);
         p.setProperty("deepText", c.deepText);
+        p.setProperty("etherOn", "" + c.etherOn);
+        p.setProperty("etherMinDist", "" + c.etherMinDist);
         p.setProperty("parkour", "" + Planner.parkour);
         p.setProperty("highlight", "" + highlight);
         p.setProperty("hud", "" + hud);
@@ -143,6 +145,8 @@ public final class Config {
         c.liftZ = (int) num(p, "liftZ", c.liftZ);
         c.liftNpc = str(p, "liftNpc", c.liftNpc);
         c.deepText = str(p, "deepText", c.deepText);
+        c.etherOn = bool(p, "etherOn", c.etherOn);
+        c.etherMinDist = (int) clamp(num(p, "etherMinDist", c.etherMinDist), 20, 80);
         Planner.parkour = bool(p, "parkour", Planner.parkour);
         highlight = bool(p, "highlight", highlight);
         hud = bool(p, "hud", hud);
