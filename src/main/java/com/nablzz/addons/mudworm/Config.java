@@ -37,6 +37,10 @@ public final class Config {
     public static int swapGapMs = 2000;
     /** After this many lobby refreshes in a row without a mined spot, the hub routine (/hub, /warp galatea) runs. 0 = never. */
     public static int hubAfter = 2;
+    /** Stuck warps (the stuck command) in a row before the hub routine runs instead. */
+    public static int stuckHubAfter = 3;
+    /** Lobby changes in a row without any progress before the macro gives up and stops. */
+    public static int giveUpAfter = 8;
     public static int landBelow = 10;
     public static int landAbove = 12;
     public static int areaMargin = 30;
@@ -93,7 +97,9 @@ public final class Config {
         noSpotSeconds = Math.max(1, Math.min(60, Config.i(p, "noSpotSeconds", noSpotSeconds)));
         settleSeconds = Math.max(1, Math.min(15, Config.i(p, "settleSeconds", settleSeconds)));
         swapGapMs = Math.max(300, Math.min(8000, Config.i(p, "swapGapMs", swapGapMs)));
-        hubAfter = Math.max(0, Math.min(10, Config.i(p, "hubAfter", hubAfter)));
+        hubAfter = Math.max(0, Math.min(50, Config.i(p, "hubAfter", hubAfter)));
+        stuckHubAfter = Math.max(1, Math.min(50, Config.i(p, "stuckHubAfter", stuckHubAfter)));
+        giveUpAfter = Math.max(1, Math.min(100, Config.i(p, "giveUpAfter", giveUpAfter)));
         landBelow = Math.max(0, Config.i(p, "landBelow", landBelow));
         landAbove = Math.max(0, Config.i(p, "landAbove", landAbove));
         areaMargin = Math.max(0, Config.i(p, "areaMargin", areaMargin));
@@ -138,6 +144,8 @@ public final class Config {
         p.setProperty("settleSeconds", "" + settleSeconds);
         p.setProperty("swapGapMs", "" + swapGapMs);
         p.setProperty("hubAfter", "" + hubAfter);
+        p.setProperty("stuckHubAfter", "" + stuckHubAfter);
+        p.setProperty("giveUpAfter", "" + giveUpAfter);
         p.setProperty("landBelow", "" + landBelow);
         p.setProperty("landAbove", "" + landAbove);
         p.setProperty("areaMargin", "" + areaMargin);

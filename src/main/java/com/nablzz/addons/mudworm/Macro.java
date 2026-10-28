@@ -167,12 +167,12 @@ public final class Macro {
         if (!this.running || this.refreshing || this.warping || mc.player == null) {
             return;
         }
-        if (++this.avoidSwaps > 8) {
+        if (++this.avoidSwaps > Config.giveUpAfter) {
             this.avoidSwaps = 0;
-            this.stop(mc, who + " keeps showing up after 8 lobby swaps");
+            this.stop(mc, who + " keeps showing up after " + Config.giveUpAfter + " lobby swaps");
             return;
         }
-        Chat.msg(who + " is in this lobby - swapping lobby (" + this.avoidSwaps + "/8).");
+        Chat.msg(who + " is in this lobby - swapping lobby (" + this.avoidSwaps + "/" + Config.giveUpAfter + ").");
         this.startSwap(mc, mc.player, System.currentTimeMillis());
     }
 
@@ -431,13 +431,13 @@ public final class Macro {
         if (cmd.isBlank()) {
             return;
         }
-        if (++this.warpsSinceSpot > 3) {
+        if (++this.warpsSinceSpot > Config.stuckHubAfter) {
             this.warpsSinceSpot = 0;
-            if (++this.refreshesInARow > 8) {
-                this.stop(mc, "still stuck after 8 lobby changes");
+            if (++this.refreshesInARow > Config.giveUpAfter) {
+                this.stop(mc, "still stuck after " + Config.giveUpAfter + " lobby changes");
                 return;
             }
-            Chat.msg("Still stuck after /" + cmd + " 3 times - doing the hub routine: /hub, then /warp galatea");
+            Chat.msg("Still stuck after /" + cmd + " " + Config.stuckHubAfter + " times - doing the hub routine: /hub, then /warp galatea");
             this.inHub = true;
             this.refreshing = true;
             this.lastSwitchAt = now;
@@ -503,8 +503,8 @@ public final class Macro {
             Chat.debug("Only " + n + " spots (minimum " + Config.minSpots + ") but the lobby-switch cooldown has " + wait / 1000L + " s left.");
             return false;
         }
-        if (++this.refreshesInARow > 8) {
-            this.stop(mc, "the last 8 lobbies all had fewer than " + Config.minSpots + " spots - lower /mudworm minspots");
+        if (++this.refreshesInARow > Config.giveUpAfter) {
+            this.stop(mc, "the last " + Config.giveUpAfter + " lobbies all had fewer than " + Config.minSpots + " spots - lower /mudworm minspots");
             return true;
         }
         Chat.msg("Only " + n + " spots in this lobby (minimum " + Config.minSpots + ") - refreshing: /" + Config.swapFirst + ", then /" + Config.swapSecond);
