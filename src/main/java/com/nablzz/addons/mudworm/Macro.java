@@ -197,6 +197,7 @@ public final class Macro {
         this.inHub = false;
         this.warpsSinceSpot = 0;
         this.warping = false;
+        this.deferCmd = null;
         this.resumeAt = 0L;
         this.moveRef = null;
         this.aim.reset();
@@ -248,6 +249,14 @@ public final class Macro {
         String lower = s.toLowerCase(Locale.ROOT);
         if (lower.contains("enough mana")) {
             this.noManaUntil = System.currentTimeMillis() + 3000L;
+        }
+        if (this.running && this.warping && this.deferCmd == null && this.lastCmdText != null
+                && (lower.contains("couldn't warp you") || lower.contains("player_transfer_cooldown")) && ++this.cmdRetries <= 3) {
+            long now = System.currentTimeMillis(); // the server refused: send it again after the cooldown
+            this.deferCmd = this.lastCmdText;
+            this.deferAt = now + (long)Math.max(Config.warpCooldownSeconds, 3) * 1000L;
+            this.warpWaitUntil = this.deferAt + 15000L;
+            Chat.msg("The server refused the warp (transfer cooldown) - trying /" + this.deferCmd + " again in " + Math.max(Config.warpCooldownSeconds, 3) + " s.");
         }
         if (this.running && s.contains("There are blocks in the way")) {
             this.blockedAt = System.currentTimeMillis();
@@ -302,6 +311,16 @@ public final class Macro {
             boolean moved;
             this.status = "Warping";
             Macro.release(mc);
+            if (this.deferCmd != null) {
+                this.status = "Warp cooldown: /" + this.deferCmd + " in " + Math.max(0L, (this.deferAt - now) / 1000L + 1L) + " s";
+                if (now >= this.deferAt) {
+                    p.connection.sendCommand(this.deferCmd);
+                    this.lastCmdAt = now;
+                    this.deferCmd = null;
+                    this.warpWaitUntil = now + 15000L;
+                }
+                return;
+            }
             boolean bl = moved = pos.distanceTo(this.warpPos) > 6.0 || mc.level != this.warpLevel;
             if (moved || now > this.warpWaitUntil) {
                 this.warping = false;
@@ -449,16 +468,31 @@ public final class Macro {
         this.beginWarp(mc, p, now, cmd);
     }
 
+    private long lastCmdAt;
+    private long deferAt;
+    private String deferCmd;
+    private String lastCmdText;
+    private int cmdRetries;
+
     private void beginWarp(Minecraft mc, LocalPlayer p, long now, String cmd) {
         Macro.release(mc);
         this.cancelPlan();
         this.steps = new ArrayList<Pathfinder.Step>();
         this.goal = null;
-        p.connection.sendCommand(cmd);
+        this.lastCmdText = cmd;
+        this.cmdRetries = 0;
+        long at = Math.max(now, this.lastCmdAt + (long)Config.warpCooldownSeconds * 1000L);
+        if (at > now) {
+            this.deferCmd = cmd;
+            this.deferAt = at;
+        } else {
+            p.connection.sendCommand(cmd);
+            this.lastCmdAt = now;
+        }
         this.warping = true;
         this.warpPos = p.position();
         this.warpLevel = mc.level;
-        this.warpWaitUntil = now + 15000L;
+        this.warpWaitUntil = at + 15000L;
     }
 
     /**

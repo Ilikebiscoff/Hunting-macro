@@ -37,6 +37,8 @@ public final class Config {
     public static int swapGapMs = 2000;
     /** After this many lobby refreshes in a row without a mined spot, the hub routine (/hub, /warp galatea) runs. 0 = never. */
     public static int hubAfter = 2;
+    /** Hypixel refuses warps that come too soon after another one ("PLAYER_TRANSFER_COOLDOWN"): minimum seconds between two warp commands. */
+    public static int warpCooldownSeconds = 6;
     /** Stuck warps (the stuck command) in a row before the hub routine runs instead. */
     public static int stuckHubAfter = 3;
     /** Lobby changes in a row without any progress before the macro gives up and stops. */
@@ -97,6 +99,7 @@ public final class Config {
         noSpotSeconds = Math.max(1, Math.min(60, Config.i(p, "noSpotSeconds", noSpotSeconds)));
         settleSeconds = Math.max(1, Math.min(15, Config.i(p, "settleSeconds", settleSeconds)));
         swapGapMs = Math.max(300, Math.min(8000, Config.i(p, "swapGapMs", swapGapMs)));
+        warpCooldownSeconds = Math.max(0, Math.min(30, Config.i(p, "warpCooldownSeconds", warpCooldownSeconds)));
         hubAfter = Math.max(0, Math.min(50, Config.i(p, "hubAfter", hubAfter)));
         stuckHubAfter = Math.max(1, Math.min(50, Config.i(p, "stuckHubAfter", stuckHubAfter)));
         giveUpAfter = Math.max(1, Math.min(100, Config.i(p, "giveUpAfter", giveUpAfter)));
@@ -144,6 +147,7 @@ public final class Config {
         p.setProperty("settleSeconds", "" + settleSeconds);
         p.setProperty("swapGapMs", "" + swapGapMs);
         p.setProperty("hubAfter", "" + hubAfter);
+        p.setProperty("warpCooldownSeconds", "" + warpCooldownSeconds);
         p.setProperty("stuckHubAfter", "" + stuckHubAfter);
         p.setProperty("giveUpAfter", "" + giveUpAfter);
         p.setProperty("landBelow", "" + landBelow);
