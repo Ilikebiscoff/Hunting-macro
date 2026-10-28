@@ -522,7 +522,7 @@ public final class Macro {
         }
         this.inHub = false;
         this.pendingCommand = Config.swapSecondNow().isBlank() ? null : Config.swapSecondNow();
-        this.beginWarp(mc, p, now, Config.swapFirst.isBlank() ? "warp galatea" : Config.swapFirst);
+        this.beginWarp(mc, p, now, Config.swapFirstNow().isBlank() ? "warp galatea" : Config.swapFirstNow());
     }
 
     private int liveSpots(ClientLevel lv) {
@@ -551,7 +551,7 @@ public final class Macro {
             this.stop(mc, "the last " + Config.giveUpAfter + " lobbies all had fewer than " + Config.minSpots + " spots - lower /mudworm minspots");
             return true;
         }
-        Chat.msg("Only " + n + " spots in this lobby (minimum " + Config.minSpots + ") - refreshing: /" + Config.swapFirst + ", then /" + Config.swapSecondNow());
+        Chat.msg("Only " + n + " spots in this lobby (minimum " + Config.minSpots + ") - refreshing: " + Config.swapText());
         this.startSwap(mc, p, now);
         return true;
     }
@@ -611,7 +611,7 @@ public final class Macro {
             this.idleSince = 0L;
             if (++this.idleStrikes >= 1) {
                 this.idleStrikes = 0;
-                Chat.msg("No spot in view for " + Config.noSpotSeconds + " s - swapping lobby: /" + Config.swapFirst + ", then /" + Config.swapSecondNow());
+                Chat.msg("No spot in view for " + Config.noSpotSeconds + " s - swapping lobby: " + Config.swapText());
                 this.startSwap(mc, p, now);
                 return;
             }

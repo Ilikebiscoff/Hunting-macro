@@ -82,7 +82,11 @@ public final class Config {
     public static int pMaxZ() { return canyon && canyonSet() ? canyonMaxZ : areaMaxZ; }
 
     /** The command that follows /hub (or /warp galatea) when the lobby is swapped. */
-    public static String swapSecondNow() { return canyon ? canyonCmd : swapSecond; }
+    public static String swapFirstNow() { return canyon ? canyonCmd : swapFirst; }
+    /** Canyon mode swaps with the one canyon warp only (no /warp galatea): empty = no second command. */
+    public static String swapSecondNow() { return canyon ? "" : swapSecond; }
+    /** "/a, then /b" for chat messages. */
+    public static String swapText() { return swapSecondNow().isBlank() ? "/" + swapFirstNow() : "/" + swapFirstNow() + ", then /" + swapSecondNow(); }
     public static String hubSecondNow() { return canyon ? canyonCmd : "warp galatea"; }
     public static String stuckCommandNow() { return canyon ? canyonCmd : stuckCommand; }
     public static int scanMinY = 60;
