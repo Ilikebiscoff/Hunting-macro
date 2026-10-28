@@ -81,14 +81,32 @@ public final class Config {
     public static int pMinZ() { return canyon && canyonSet() ? canyonMinZ : areaMinZ; }
     public static int pMaxZ() { return canyon && canyonSet() ? canyonMaxZ : areaMaxZ; }
 
-    /** The command that follows /hub (or /warp galatea) when the lobby is swapped. */
-    public static String swapFirstNow() { return canyon ? canyonCmd : swapFirst; }
-    /** Canyon mode swaps with the one canyon warp only (no /warp galatea): empty = no second command. */
-    public static String swapSecondNow() { return canyon ? "" : swapSecond; }
-    /** "/a, then /b" for chat messages. */
-    public static String swapText() { return swapSecondNow().isBlank() ? "/" + swapFirstNow() : "/" + swapFirstNow() + ", then /" + swapSecondNow(); }
-    public static String hubSecondNow() { return canyon ? canyonCmd : "warp galatea"; }
+    /**
+     * Two separate zones, each with its own command lists (comma separated, run one after the other with the warp cooldown
+     * between them): Galatea (Moonglade Marsh) and Torrhus Canyon. Nothing of one zone is used in the other.
+     */
+    public static String galSwap = "warp galatea, warp murk";
+    public static String galHub = "hub, warp galatea, warp murk";
+    public static String canSwap = "warp canyon";
+    public static String canHub = "hub, warp canyon";
+
+    private static java.util.List<String> parse(String s, String fallback) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        for (String c : (s == null ? "" : s).split(",")) {
+            String t = c.trim();
+            if (t.startsWith("/")) t = t.substring(1).trim();
+            if (!t.isEmpty()) out.add(t);
+        }
+        return out.isEmpty() && fallback != null ? parse(fallback, null) : out;
+    }
+
+    /** The commands of a normal lobby swap in the active zone. */
+    public static java.util.List<String> swapCmds() { return parse(canyon ? canSwap : galSwap, canyon ? "warp canyon" : "warp galatea, warp murk"); }
+    /** The commands of the hub routine in the active zone. */
+    public static java.util.List<String> hubCmds() { return parse(canyon ? canHub : galHub, canyon ? "hub, warp canyon" : "hub, warp galatea, warp murk"); }
     public static String stuckCommandNow() { return canyon ? canyonCmd : stuckCommand; }
+    public static String zoneName() { return canyon ? "Torrhus Canyon" : "Galatea (Moonglade Marsh)"; }
+    public static String cmdText(java.util.List<String> l) { return "/" + String.join(", then /", l); }
     public static int scanMinY = 60;
     public static int scanMaxY = 200;
 
@@ -122,6 +140,10 @@ public final class Config {
         stuckCommand = p.getProperty("stuckCommand", stuckCommand).trim();
         swapFirst = p.getProperty("swapFirst", swapFirst).trim();
         swapSecond = p.getProperty("swapSecond", swapSecond).trim();
+        galSwap = p.getProperty("galSwap", swapSecond.isBlank() ? swapFirst : swapFirst + ", " + swapSecond).trim(); // older configs: the two swap commands
+        galHub = p.getProperty("galHub", galHub).trim();
+        canSwap = p.getProperty("canSwap", canSwap).trim();
+        canHub = p.getProperty("canHub", canHub).trim();
         noSpotSeconds = Math.max(1, Math.min(60, Config.i(p, "noSpotSeconds", noSpotSeconds)));
         settleSeconds = Math.max(1, Math.min(15, Config.i(p, "settleSeconds", settleSeconds)));
         swapGapMs = Math.max(300, Math.min(8000, Config.i(p, "swapGapMs", swapGapMs)));
@@ -174,6 +196,10 @@ public final class Config {
         p.setProperty("unstuckWarp", "" + unstuckWarp);
         p.setProperty("stuckSeconds", "" + stuckSeconds);
         p.setProperty("stuckCommand", stuckCommand);
+        p.setProperty("galSwap", galSwap);
+        p.setProperty("galHub", galHub);
+        p.setProperty("canSwap", canSwap);
+        p.setProperty("canHub", canHub);
         p.setProperty("swapFirst", swapFirst);
         p.setProperty("swapSecond", swapSecond);
         p.setProperty("noSpotSeconds", "" + noSpotSeconds);

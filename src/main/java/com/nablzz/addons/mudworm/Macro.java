@@ -101,7 +101,7 @@ public final class Macro {
     private long digSince;
     private long lastSwing;
     private long idleSince;
-    private String pendingCommand;
+    private final java.util.ArrayDeque<String> pendingQ = new java.util.ArrayDeque<>();
     private long sendPendingAt;
     private long lastSwitchAt;
     private long settleUntil;
@@ -194,6 +194,7 @@ public final class Macro {
             Config.save();
             Chat.msg("Torrhus Canyon mode: no canyon patrol area was set, using a 120 x 120 box around you (change it in the Lobby tab).");
         }
+        Chat.msg("Zone: " + Config.zoneName() + " - lobby swap " + Config.cmdText(Config.swapCmds()) + ", hub routine " + Config.cmdText(Config.hubCmds()) + ", stuck /" + Config.stuckCommandNow() + ".");
         this.running = true;
         this.startLevel = mc.level;
         this.stage = Stage.CHOOSE;
@@ -208,6 +209,7 @@ public final class Macro {
         this.warpsSinceSpot = 0;
         this.warping = false;
         this.deferCmd = null;
+        this.pendingQ.clear();
         this.resumeAt = 0L;
         this.moveRef = null;
         this.aim.reset();
@@ -337,7 +339,7 @@ public final class Macro {
                 this.resumeAt = now + (long)(moved ? 2000 : 500);
                 this.afterTeleport(pos, now);
                 this.settleUntil = now + (long)Config.settleSeconds * 1000L;
-                if (this.pendingCommand != null) {
+                if (!this.pendingQ.isEmpty()) {
                     this.sendPendingAt = now + (long)Config.swapGapMs;
                 } else if (this.refreshing) {
                     this.refreshing = false;
@@ -359,13 +361,12 @@ public final class Macro {
             this.lastPos = pos;
             return;
         }
-        if (this.pendingCommand != null) {
-            this.status = "Refreshing lobby: /" + this.pendingCommand + " in " + Math.max(0L, (this.sendPendingAt - now) / 1000L + 1L) + " s";
+        if (!this.pendingQ.isEmpty()) {
+            this.status = "Refreshing lobby: /" + this.pendingQ.peek() + " in " + Math.max(0L, (this.sendPendingAt - now) / 1000L + 1L) + " s";
             Macro.release(mc);
             this.lastPos = pos;
             if (now >= this.sendPendingAt) {
-                String c = this.pendingCommand;
-                this.pendingCommand = null;
+                String c = this.pendingQ.poll();
                 this.beginWarp(mc, p, now, c);
             }
             return;
@@ -466,12 +467,12 @@ public final class Macro {
                 this.stop(mc, "still stuck after " + Config.giveUpAfter + " lobby changes");
                 return;
             }
-            Chat.msg("Still stuck after /" + cmd + " " + Config.stuckHubAfter + " times - doing the hub routine: /hub, then /" + Config.hubSecondNow());
+            java.util.List<String> hub = Config.hubCmds();
+            Chat.msg("Still stuck after /" + cmd + " " + Config.stuckHubAfter + " times - doing the hub routine (" + Config.zoneName() + "): " + Config.cmdText(hub));
             this.inHub = true;
             this.refreshing = true;
             this.lastSwitchAt = now;
-            this.pendingCommand = Config.hubSecondNow();
-            this.beginWarp(mc, p, now, "hub");
+            this.runCommands(mc, p, now, hub);
             return;
         }
         Chat.msg(reason + " - /" + cmd + " (stage " + String.valueOf((Object)this.stage) + ", " + this.status + ")");
@@ -513,16 +514,24 @@ public final class Macro {
         this.refreshing = true;
         this.lastSwitchAt = now;
         if (Config.hubAfter > 0 && this.refreshStreak >= Config.hubAfter) {
-            Chat.msg("The lobby was refreshed " + this.refreshStreak + " times in a row without a spot - doing the hub routine: /hub, then /" + Config.hubSecondNow());
+            java.util.List<String> hub = Config.hubCmds();
+            Chat.msg("The lobby was refreshed " + this.refreshStreak + " times in a row without a spot - doing the hub routine (" + Config.zoneName() + "): " + Config.cmdText(hub));
             this.refreshStreak = 0;
             this.inHub = true;
-            this.pendingCommand = Config.hubSecondNow();
-            this.beginWarp(mc, p, now, "hub");
+            this.runCommands(mc, p, now, hub);
             return;
         }
         this.inHub = false;
-        this.pendingCommand = Config.swapSecondNow().isBlank() ? null : Config.swapSecondNow();
-        this.beginWarp(mc, p, now, Config.swapFirstNow().isBlank() ? "warp galatea" : Config.swapFirstNow());
+        this.runCommands(mc, p, now, Config.swapCmds());
+    }
+
+    /** Sends the first command now (after the warp cooldown) and queues the others to follow one after the other. */
+    private void runCommands(Minecraft mc, LocalPlayer p, long now, java.util.List<String> cmds) {
+        this.pendingQ.clear();
+        for (int i = 1; i < cmds.size(); ++i) {
+            this.pendingQ.add(cmds.get(i));
+        }
+        this.beginWarp(mc, p, now, cmds.get(0));
     }
 
     private int liveSpots(ClientLevel lv) {
@@ -551,7 +560,7 @@ public final class Macro {
             this.stop(mc, "the last " + Config.giveUpAfter + " lobbies all had fewer than " + Config.minSpots + " spots - lower /mudworm minspots");
             return true;
         }
-        Chat.msg("Only " + n + " spots in this lobby (minimum " + Config.minSpots + ") - refreshing: " + Config.swapText());
+        Chat.msg("Only " + n + " spots in this lobby (minimum " + Config.minSpots + ") - refreshing (" + Config.zoneName() + "): " + Config.cmdText(Config.swapCmds()));
         this.startSwap(mc, p, now);
         return true;
     }
@@ -611,7 +620,7 @@ public final class Macro {
             this.idleSince = 0L;
             if (++this.idleStrikes >= 1) {
                 this.idleStrikes = 0;
-                Chat.msg("No spot in view for " + Config.noSpotSeconds + " s - swapping lobby: " + Config.swapText());
+                Chat.msg("No spot in view for " + Config.noSpotSeconds + " s - swapping lobby (" + Config.zoneName() + "): " + Config.cmdText(Config.swapCmds()));
                 this.startSwap(mc, p, now);
                 return;
             }

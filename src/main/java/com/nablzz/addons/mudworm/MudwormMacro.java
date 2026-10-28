@@ -151,19 +151,19 @@ public final class MudwormMacro implements Feature {
             })));
             root.then(MudwormMacro.lit("canyon")
                     .executes(c -> {
-                        Chat.msg("Torrhus Canyon mode is " + (Config.canyon ? "ON" : "off") + " (/mudworm canyon on|off|here <radius>|cmd <command>)");
+                        Chat.msg("Zone: " + Config.zoneName() + " (/mudworm canyon on|off|here <radius>|cmd <stuck command>)");
                         return 1;
                     })
                     .then(MudwormMacro.lit("on").executes(c -> {
                         Config.canyon = true;
                         Config.save();
-                        Chat.msg("Torrhus Canyon mode ON: lobby swaps end with /" + Config.canyonCmd + ".");
+                        Chat.msg("Zone: Torrhus Canyon. Lobby swap " + Config.cmdText(Config.swapCmds()) + ", hub routine " + Config.cmdText(Config.hubCmds()) + ".");
                         return 1;
                     }))
                     .then(MudwormMacro.lit("off").executes(c -> {
                         Config.canyon = false;
                         Config.save();
-                        Chat.msg("Torrhus Canyon mode off: back to Moonglade Marsh.");
+                        Chat.msg("Zone: Galatea. Lobby swap " + Config.cmdText(Config.swapCmds()) + ", hub routine " + Config.cmdText(Config.hubCmds()) + ".");
                         return 1;
                     }))
                     .then(MudwormMacro.lit("cmd").then(RequiredArgumentBuilder.argument((String)"command", (ArgumentType)StringArgumentType.greedyString()).executes(c -> {
@@ -273,13 +273,13 @@ public final class MudwormMacro implements Feature {
             root.then(MudwormMacro.lit("hub").then(RequiredArgumentBuilder.argument((String)"refreshes", (ArgumentType)IntegerArgumentType.integer((int)0, (int)50)).executes(c -> {
                 Config.hubAfter = IntegerArgumentType.getInteger((CommandContext)c, (String)"refreshes");
                 Config.save();
-                Chat.msg((String)(Config.hubAfter <= 0 ? "The hub routine is off." : "After " + Config.hubAfter + " lobby refreshes in a row without a spot: /hub, then /warp galatea."));
+                Chat.msg((String)(Config.hubAfter <= 0 ? "The hub routine is off." : "After " + Config.hubAfter + " lobby refreshes in a row without a spot: " + Config.cmdText(Config.hubCmds()) + " (" + Config.zoneName() + ")."));
                 return 1;
             })));
             root.then(MudwormMacro.lit("minspots").then(RequiredArgumentBuilder.argument((String)"count", (ArgumentType)IntegerArgumentType.integer((int)0, (int)50)).executes(c -> {
                 Config.minSpots = IntegerArgumentType.getInteger((CommandContext)c, (String)"count");
                 Config.save();
-                Chat.msg((String)(Config.minSpots <= 0 ? "Lobby refresh is off." : "Fewer than " + Config.minSpots + " live spots in the lobby: it swaps lobby (/" + Config.swapFirst + " then /" + Config.swapSecond + ") (cooldown " + Config.refreshCooldownSeconds + " s between switches)."));
+                Chat.msg((String)(Config.minSpots <= 0 ? "Lobby refresh is off." : "Fewer than " + Config.minSpots + " live spots in the lobby: it swaps lobby (" + Config.cmdText(Config.swapCmds()) + ") (cooldown " + Config.refreshCooldownSeconds + " s between switches)."));
                 return 1;
             })));
             root.then(MudwormMacro.lit("refreshcooldown").then(RequiredArgumentBuilder.argument((String)"seconds", (ArgumentType)IntegerArgumentType.integer((int)5, (int)600)).executes(c -> {
@@ -344,7 +344,7 @@ public final class MudwormMacro implements Feature {
     }
 
     private static int help() {
-        for (String s : List.of("/mudworm start | stop | toggle (key K)", "/mudworm gui (opens the settings) | status | spots | stats (opens the statistics screen) | reset (zero the status panel) | dev (copies a diagnostic report)", "/mudworm esp | hud | debug | strict | failsafe", "/mudworm stuckwarp | stuckcmd <command> | stucktime <seconds>", "/mudworm range <10-61> | ethercost <blocks>", "/mudworm area marsh | area here <radius>", "/mudworm canyon on|off|here <radius>|cmd <command>  (Torrhus Canyon mode: warps end with /warp canyon, own patrol box)", "/mudworm axe (takes the item in your hand) | axe off | axe name <text>  (use an axe for mining spots)", "/mudworm minspots <n> | refreshcooldown <seconds>  (fewer than n spots in the lobby: swap lobby, 0 = off)", "/mudworm hub <n>  (after n lobby refreshes in a row without a spot do /hub then /warp galatea, 0 = never; the other counts are in the Lobby tab)", "/mudworm maxdist <blocks>  (spots farther than this are never targeted, default 120)", "/mudworm scoottime <seconds> | scoot <blocks>  (walk to spots this close with WASD, 0 = off)", "/mudworm hopdelay <ms>  (extra wait before each teleport, default 250)", "/mudworm yband <below> <above>  (how far hops may stray up/down from the way to the spot)", "/mudworm blacklist | blacklist clear", "/mudworm sites clear | reload")) {
+        for (String s : List.of("/mudworm start | stop | toggle (key K)", "/mudworm gui (opens the settings) | status | spots | stats (opens the statistics screen) | reset (zero the status panel) | dev (copies a diagnostic report)", "/mudworm esp | hud | debug | strict | failsafe", "/mudworm stuckwarp | stuckcmd <command> | stucktime <seconds>", "/mudworm range <10-61> | ethercost <blocks>", "/mudworm area marsh | area here <radius>", "/mudworm canyon on|off|here <radius>|cmd <stuck command>  (zone: on = Torrhus Canyon, off = Galatea; each has its own swap / hub commands and patrol box)", "/mudworm axe (takes the item in your hand) | axe off | axe name <text>  (use an axe for mining spots)", "/mudworm minspots <n> | refreshcooldown <seconds>  (fewer than n spots in the lobby: swap lobby, 0 = off)", "/mudworm hub <n>  (after n lobby refreshes in a row without a spot do the hub routine of the active zone, 0 = never; the other counts are in the Lobby tab)", "/mudworm maxdist <blocks>  (spots farther than this are never targeted, default 120)", "/mudworm scoottime <seconds> | scoot <blocks>  (walk to spots this close with WASD, 0 = off)", "/mudworm hopdelay <ms>  (extra wait before each teleport, default 250)", "/mudworm yband <below> <above>  (how far hops may stray up/down from the way to the spot)", "/mudworm blacklist | blacklist clear", "/mudworm sites clear | reload")) {
             Chat.msg(s);
         }
         return 1;
@@ -490,12 +490,12 @@ public final class MudwormMacro implements Feature {
         ui.toggle("Use an axe", "Switch to the named hotbar item to mine spots (otherwise the Aspect of the Void in your hand is used).", () -> Config.useAxe, v -> Config.useAxe = v);
         ui.islider("Axe equip wait", "After swapping to the axe, wait this long before the first hit so the server has really equipped it (fast teleports gave it too little time). Raise it if hits still land with the wrong item.", 0, 1500, () -> Config.axeEquipMs, v -> Config.axeEquipMs = v, " ms");
         ui.text("Axe name", "Part of the hotbar item name (not case sensitive). Or hold the axe and run /mudworm axe.", () -> Config.axeName, v -> Config.axeName = v, 150, "Helix Chopper");
-        ui.section("Torrhus Canyon");
-        ui.toggle("Torrhus Canyon mode", "Hunt mudworms in Torrhus Canyon instead of Moonglade Marsh: the lobby swap, hub routine and stuck command end with the canyon warp (below), and the patrol box is the canyon one (Lobby tab). Same as /mudworm canyon on|off.", () -> Config.canyon, v -> {
-            Config.canyon = v;
+        ui.section("Zone");
+        ui.choice("Hunt in", "Galatea (Moonglade Marsh) or Torrhus Canyon: one OR the other. Each zone has its own lobby-swap commands, hub routine, stuck command and patrol box (Lobby tab); nothing of the other zone is used. Same as /mudworm canyon on|off.", new String[]{"Galatea", "Torrhus Canyon"}, () -> Config.canyon ? 1 : 0, v -> {
+            Config.canyon = v == 1;
             Config.save();
         });
-        ui.text("Canyon warp command", "Without the slash.", () -> Config.canyonCmd, v -> Config.canyonCmd = v, 150, "warp canyon");
+        ui.info("Active zone", "What the lobby swap and hub routine will run now.", () -> Config.zoneName() + ":  swap " + Config.cmdText(Config.swapCmds()) + "   hub " + Config.cmdText(Config.hubCmds()), Ui.MUTED);
 
         ui.section("Close spots");
         ui.dslider("Walk range", "Spots this close are walked to with W/A/S/D instead of teleported to. 0 = off.", 0, 30, 1, () -> Config.scootRange, v -> Config.scootRange = v, "%.0f blocks");
@@ -543,22 +543,28 @@ public final class MudwormMacro implements Feature {
         ui.section("New lobby");
         ui.islider("Refresh below", "Fewer than this many live spots in the lobby: swap lobby (the two commands below). 0 = off.", 0, 50, () -> Config.minSpots, v -> Config.minSpots = v, " spots");
         ui.islider("Refresh cooldown", "At least this long between lobby switches.", 5, 600, () -> Config.refreshCooldownSeconds, v -> Config.refreshCooldownSeconds = v, " s");
-        ui.text("Swap: first command", "Run first when the lobby is swapped (without the slash). /warp galatea loads the island, so more spots are around.", () -> Config.swapFirst, v -> Config.swapFirst = v, 150, "warp galatea");
-        ui.text("Swap: second command", "Run a few seconds after the first one arrived (without the slash).", () -> Config.swapSecond, v -> Config.swapSecond = v, 150, "warp murk");
+        ui.section("Galatea zone commands");
+        ui.text("Lobby swap", "Commands run one after the other (comma separated, without the slash) when the lobby is swapped in the Galatea zone.", () -> Config.galSwap, v -> Config.galSwap = v, 200, "warp galatea, warp murk");
+        ui.text("Hub routine", "Commands of the hub routine in the Galatea zone.", () -> Config.galHub, v -> Config.galHub = v, 200, "hub, warp galatea, warp murk");
+        ui.text("Stuck command", "Run when the macro does not move (Galatea zone).", () -> Config.stuckCommand, v -> Config.stuckCommand = v, 150, "warp murk");
+        ui.section("Torrhus Canyon zone commands");
+        ui.text("Lobby swap", "Commands run one after the other (comma separated, without the slash) when the lobby is swapped in the Torrhus Canyon zone.", () -> Config.canSwap, v -> Config.canSwap = v, 200, "warp canyon");
+        ui.text("Hub routine", "Commands of the hub routine in the Torrhus Canyon zone.", () -> Config.canHub, v -> Config.canHub = v, 200, "hub, warp canyon");
+        ui.text("Stuck command", "Run when the macro does not move (Torrhus Canyon zone).", () -> Config.canyonCmd, v -> Config.canyonCmd = v, 150, "warp canyon");
+        ui.section("Swap timing");
         ui.islider("Nothing here: swap after", "Seconds with no spot in view (after arriving) before the lobby is swapped. Lower = faster to give up on an empty lobby.", 1, 30, () -> Config.noSpotSeconds, v -> Config.noSpotSeconds = v, " s");
         ui.islider("Settle time", "Seconds after arriving in a lobby before it counts spots or starts the nothing-here timer (the terrain and particles need a moment).", 1, 10, () -> Config.settleSeconds, v -> Config.settleSeconds = v, " s");
-        ui.islider("Gap between the swap commands", "Pause between the first and the second swap command.", 500, 6000, () -> Config.swapGapMs, v -> Config.swapGapMs = v, " ms");
+        ui.islider("Gap between the swap commands", "Pause between one swap command arriving and the next being sent (never shorter than the warp cooldown).", 500, 6000, () -> Config.swapGapMs, v -> Config.swapGapMs = v, " ms");
         ui.islider("Warp cooldown", "Minimum time between two warp / lobby commands. Hypixel answers \"Couldn't warp you! Try again later (PLAYER_TRANSFER_COOLDOWN)\" when they come too fast. The gap between the two swap commands is at least this long.", 0, 30, () -> Config.warpCooldownSeconds, v -> Config.warpCooldownSeconds = v, " s");
-        ui.islider("Hub routine after", "After this many lobby refreshes in a row that found nothing to mine, do /hub then /warp galatea instead. 0 = never.", 0, 50, () -> Config.hubAfter, v -> Config.hubAfter = v, " refreshes");
-        ui.islider("Stuck: hub routine after", "After the stuck command ran this many times in a row without getting you moving, do /hub then /warp galatea instead.", 1, 50, () -> Config.stuckHubAfter, v -> Config.stuckHubAfter = v, " times");
+        ui.islider("Hub routine after", "After this many lobby refreshes in a row that found nothing to mine, do the hub routine of the active zone instead. 0 = never.", 0, 50, () -> Config.hubAfter, v -> Config.hubAfter = v, " refreshes");
+        ui.islider("Stuck: hub routine after", "After the stuck command ran this many times in a row without getting you moving, do the hub routine of the active zone instead.", 1, 50, () -> Config.stuckHubAfter, v -> Config.stuckHubAfter = v, " times");
         ui.islider("Give up after", "Stop the macro after this many lobby changes in a row that got nowhere (also used by the avoid list).", 1, 100, () -> Config.giveUpAfter, v -> Config.giveUpAfter = v, " lobbies");
         ui.button("Forget blacklist", "Clears the spots skipped in this lobby.", "Clear", false, SpotScanner.BLACKLIST::clear);
 
         ui.tab("Safety", "F");
         ui.section("Stuck");
-        ui.toggle("Warp when stuck", "Run the command below when the macro has not moved for the time below.", () -> Config.unstuckWarp, v -> Config.unstuckWarp = v);
+        ui.toggle("Warp when stuck", "Run the stuck command of the active zone (Lobby tab) when the macro has not moved for the time below.", () -> Config.unstuckWarp, v -> Config.unstuckWarp = v);
         ui.islider("Stuck after", "Seconds without moving.", 1, 60, () -> Config.stuckSeconds, v -> Config.stuckSeconds = v, " s");
-        ui.text("Stuck command", "Without the slash.", () -> Config.stuckCommand, v -> Config.stuckCommand = v, 150, "warp murk");
         ui.section("Blatant mode");
         ui.note("Blatant mode sends the etherwarp aim to the server WITHOUT turning your camera. It is much easier for anti-cheat and other players to spot: a ban is far more likely. It is off at every start.");
         ui.info("State", "Whether silent aim is on.", () -> Config.blatant ? "ON" : "off", Ui.BAD);
