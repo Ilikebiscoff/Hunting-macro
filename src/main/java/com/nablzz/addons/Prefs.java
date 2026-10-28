@@ -26,6 +26,7 @@ public final class Prefs {
                 Properties p = new Properties();
                 p.load(in);
                 accentIdx = Math.max(0, Math.min(Ui.ACCENTS.length - 1, Integer.parseInt(p.getProperty("accent", "0").trim())));
+                AvoidPlayers.enabled = Boolean.parseBoolean(p.getProperty("avoidOn", "true").trim());
             } catch (Exception ignored) {
                 // keep defaults
             }
@@ -36,6 +37,7 @@ public final class Prefs {
     public static void save() {
         Properties p = new Properties();
         p.setProperty("accent", "" + accentIdx);
+        p.setProperty("avoidOn", "" + AvoidPlayers.enabled);
         try (OutputStream out = Files.newOutputStream(file())) {
             p.store(out, "Nablzz Addons");
         } catch (IOException ignored) {

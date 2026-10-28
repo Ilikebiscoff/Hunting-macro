@@ -55,8 +55,7 @@ public class Failsafe {
     private int cmdTries;
 
     /** Players to avoid sharing a lobby with; checked on lobby swaps and before starting. */
-    public final AvoidList avoid = new AvoidList(
-            net.fabricmc.loader.api.FabricLoader.getInstance().getConfigDir().resolve("glowingmushroom_avoid.json"));
+    public final AvoidList avoid = com.nablzz.addons.AvoidPlayers.LIST; // one list for every macro
     private static final long JOIN_SCAN_DELAY_MS = 2500; // tab list fills in a moment after joining
     private static final int MAX_LOBBY_HOPS = 8;
     private long joinScanAt;

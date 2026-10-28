@@ -156,6 +156,26 @@ public final class Macro {
         return this.stepIdx;
     }
 
+    private int avoidSwaps;
+
+    public void avoidClear() {
+        this.avoidSwaps = 0;
+    }
+
+    /** A listed player is in this lobby: swap lobby (the normal swap routine); gives up after 8 swaps in a row. */
+    public void avoidSwap(Minecraft mc, String who) {
+        if (!this.running || this.refreshing || this.warping || mc.player == null) {
+            return;
+        }
+        if (++this.avoidSwaps > 8) {
+            this.avoidSwaps = 0;
+            this.stop(mc, who + " keeps showing up after 8 lobby swaps");
+            return;
+        }
+        Chat.msg(who + " is in this lobby - swapping lobby (" + this.avoidSwaps + "/8).");
+        this.startSwap(mc, mc.player, System.currentTimeMillis());
+    }
+
     public void start(Minecraft mc) {
         if (this.running || mc.player == null) {
             return;

@@ -50,6 +50,7 @@ public class NablzzAddons implements ClientModInitializer {
         Features.register(new com.nablzz.addons.planner.ProfitPlanner());
         Features.register(new com.nablzz.addons.flipper.FlipperModule());
         Features.register(new com.nablzz.addons.stats.StatsModule());
+        Features.register(new AvoidModule());
         com.nablzz.addons.stats.SessionLog.init();
         com.nablzz.addons.arcade.Arcade.init();
 

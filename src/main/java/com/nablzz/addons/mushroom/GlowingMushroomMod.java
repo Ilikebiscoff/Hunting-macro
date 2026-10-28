@@ -411,7 +411,7 @@ public class GlowingMushroomMod implements Feature {
         ui.section("Recovery");
         ui.toggle("Fail-safe", "Reconnect after a kick, rejoin SkyBlock, /warp glowing after dying or leaving the cave.", () -> fs.enabled, v -> fs.enabled = v);
         ui.text("Cave name", "Sidebar text that means you are in the cave.", () -> fs.zoneText, v -> fs.zoneText = v, 150, "glowing");
-        ui.section("Avoid list");
+        ui.section("Avoid list (shared by all macros, also in the Avoid list module)");
         ui.info("Players", "Names you never want to share a lobby with.",
                 () -> fs.avoid.isEmpty() ? "empty" : String.join(", ", fs.avoid.list()), Ui.MUTED);
         ui.add("Add player", "Type a name and press Add. The macro swaps lobby if one of them is in the tab list.", "name", "Add", v -> {
